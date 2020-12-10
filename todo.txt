@@ -1,0 +1,8 @@
+= The future ... =
+
+* automatically collect remote servers/env vars
+* multiple domains (sites with multiple domains)
+* cache purge key
+* dynamic response header for cleared items count
+* purge on save (option)
+* debug
