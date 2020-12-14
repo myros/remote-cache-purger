@@ -11,7 +11,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Varnish Debug
  *
- * @since 4.4
+ * @since 1.0
  */
 class RemoteCacheDebug {
 
@@ -19,14 +19,14 @@ class RemoteCacheDebug {
 	 * Devmode Check
 	 * See if Dev Mode is active.
 	 *
-	 * @since 4.6.0
+	 * @since 1.0
 	 * @returns true|false
 	 */
 	public static function devmode_check() {
 		$return  = false;
 		$newmode = get_site_option( 'remote_cache_devmode', RemoteCachePurger::$devmode );
 
-		if ( VHP_DEVMODE ) {
+		if ( RCP_DEVMODE ) {
 			// If the define is set, we're true.
 			$return = true;
 		} elseif ( $newmode['active'] ) {
@@ -48,6 +48,8 @@ class RemoteCacheDebug {
 	 * @static
 	 * @param string $state (default: 'deactivate').
 	 * @return true|false
+	 * 
+	 * @since 1.0
 	 */
 	public static function devmode_toggle( $state = 'deactivate' ) {
 		$newmode           = get_site_option( 'remote_cache_devmode', RemoteCachePurger::$devmode );
@@ -851,4 +853,4 @@ class RemoteCacheDebug {
 	}
 }
 
-$varnish_debug = new VarnishDebug();
+$varnish_debug = new RemoteCacheDebug();
