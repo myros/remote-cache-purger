@@ -45,9 +45,8 @@ class RCPurger {
     protected $truncateCount = 0;
     protected $debug = 0;
     protected $purgeOnMenuSave = false;
-		protected $currentTab;
-		
-		protected $enabled = false;
+    protected $currentTab;
+    protected $enabled = false;
 
     public function __construct()
     {
@@ -102,7 +101,7 @@ class RCPurger {
 
         // purge all cache from admin bar
         if ($this->check_if_purgeable()) {
-            add_action('admin_bar_menu', array($this, 'purge_varnish_cache_all_adminbar'), 100);
+            add_action('admin_bar_menu', array($this, 'purge_cache_all_adminbar'), 100);
             if (isset($_GET[$this->getParam]) && check_admin_referer($this->plugin)) {
                 if ($this->varnishIp == null) {
                     add_action('admin_notices' , array($this, 'purge_message_no_ips'));
@@ -187,14 +186,14 @@ class RCPurger {
         $this->dynamicHost = get_option($this->prefix . 'dynamic_host');
         $this->statsJsons = get_option($this->prefix . 'stats_json_file');
         $this->purgeOnMenuSave = get_option($this->prefix . 'purge_menu_save');
-        $varnishIp = explode(',', $this->varnishIp);
-        $varnishIp = apply_filters('rcpurger_varnish_ips', $varnishIp);
+        $varnishIps = explode(',', $this->varnishIp);
+        // $varnishIp = apply_filters('rcpurger_varnish_ips', $varnishIp);
         $varnishHost = explode(',', $this->varnishHost);
         $varnishHost = apply_filters('rcpurger_varnish_hosts', $varnishHost);
         $statsJsons = explode(',', $this->statsJsons);
-        foreach ($varnishIp as $key => $ip) {
+        foreach ($varnishIps as $key => $ip) {
             $this->ipsToHosts[] = array(
-                'ip' => $ip,
+                'ip' => trim($ip)
                 // 'host' => $this->dynamicHost ? $_SERVER['HTTP_HOST'] : $varnishHost[$key],
                 // 'statsJson' => isset($statsJsons[$key]) ? $statsJsons[$key] : null
             );
@@ -304,7 +303,7 @@ class RCPurger {
         }
     }
 
-    public function purge_varnish_cache_all_adminbar($admin_bar)
+    public function purge_cache_all_adminbar($admin_bar)
     {
         $admin_bar->add_menu(array(
             'id'    => 'purge-all-remote-cache',
@@ -356,21 +355,116 @@ class RCPurger {
 
     public function purge_cache()
     {
+        $serverIps = array_unique($this->$varnishIp);
         $purgeUrls = array_unique($this->purgeUrls);
+        
+        
+        // $this->noticeMessage = $this->ipsToHosts . '<br/>';
+
+        // foreach (($this->ipsToHosts) as $server) {
+        //     $this->noticeMessage .= $server['ip'] . '<br/>';
+        // }
 
         if (empty($purgeUrls)) {
             if (isset($_GET[$this->getParam]) && $this->check_if_purgeable() && check_admin_referer($this->plugin)) {
                 $this->purge_url(home_url() .'/?vc-regex');
             }
         } else {
-            foreach($purgeUrls as $url) {
-                $this->purge_url($url);
+            
+            $urls_to_purge = []; 
+            foreach($purgeUrls as $key => $url) {
+                array_push($urls_to_purge, $url);
             }
+
+           foreach ($this->ipsToHosts as $server) {
+               $responses = array();
+                $ip = trim($server['ip']);
+                $mh = curl_multi_init(); // cURL multi-handle
+                $requests = array(); // This will hold cURLS requests for each file
+                
+                $options = array(
+                    CURLOPT_FOLLOWLOCATION => true,
+                    CURLOPT_AUTOREFERER    => true, 
+                    CURLOPT_USERAGENT      => 'cURL Remote Cache Purger v1.0',
+                    // CURLOPT_HEADER         => true,
+                    // CURLOPT_NOBODY          => true,
+                    CURLOPT_SSL_VERIFYPEER => false,
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_CUSTOMREQUEST => "PURGE",
+                    CURLOPT_VERBOSE => false
+                );
+                
+                // for each missing
+                
+                foreach(array_unique($urls_to_purge) as $key => $url) {
+                    $parsedUrl = parse_url($url);
+                    $schema = $parsedUrl['scheme'];
+                    $port = ( $parsedUrl['scheme'] == 'https' ? '443' : '80' );
+                    $host = $parsedUrl['host'];
+                    if (isset($parsedUrl['path'])) {
+                        $path = $parsedUrl['path'];
+                    } else {
+                        $path = '';
+                    }
+
+                    $fullUrl = $schema . '://' . $host . $path;
+
+                    # $responses[$key] = $url;
+                    $responses[$key]['url'] = $url;
+                    $responses[$key]['ip'] = $ip;
+
+                    $requests[$key]['url'] = $url;
+                    $requests[$key]['curl_handle'] = curl_init($url);
+                    
+                    // Set cURL object options
+                    curl_setopt_array($requests[$key]['curl_handle'], $options);
+                    curl_setopt($requests[$key]['curl_handle'], CURLOPT_VERBOSE, true);
+                    curl_setopt($requests[$key]['curl_handle'], CURLOPT_RESOLVE, array(
+                        "{$host}:{$port}:{$ip}",
+                    ));
+
+                    // Add cURL object to multi-handle
+                    curl_multi_add_handle($mh, $requests[$key]['curl_handle']);
+                }
+
+                
+                // Do while all request have been completed
+                do {
+                    curl_multi_exec($mh, $running);
+                } while ($running);
+                
+                $this->noticeMessage .= 'server: ' . $ip . '<br/>';
+                
+                curl_multi_close($mh);
+                
+                // }
+                // $this->purge_url($url);
+                // Collect all data here and clean up
+                foreach ($requests as $key => $request) {
+    
+                    $responses[$key]['HTTP_CODE'] = curl_getinfo($request['curl_handle'], CURLINFO_HTTP_CODE);
+    
+                    curl_multi_remove_handle($mh, $request['curl_handle']); //assuming we're being responsible about our resource management
+    
+                    
+                    # curl_close($request);                    //being responsible again.  THIS MUST GO AFTER curl_multi_getcontent();
+                }
+                // $this->noticeMessage .= '<br/>';
+                foreach($responses as $key => $response) {
+                    $this->noticeMessage .= $response['HTTP_CODE'] . ' ' .  $response['url'] . '<br />';
+                }
+            } 
+            
         }
+        
+        
+        
+
         if ($this->truncateNotice && $this->truncateNoticeShown == false) {
             $this->truncateNoticeShown = true;
             $this->noticeMessage .= '<br />' . __('Truncate message activated. Showing only first 3 messages.', $this->plugin);
         }
+
         add_action('admin_notices' , array($this, 'purge_message'));
     }
 
@@ -392,12 +486,12 @@ class RCPurger {
             $path = '';
         }
 
-        $schema = apply_filters('rcpurger_schema', ($this->useSsl ? 'https://' : 'http://'));
-				$port = ( $p['scheme'] == 'https' ? '443' : '80' );
-				$host = $p['host'];
+        $schema = $p['scheme'];
+        $port = ( $p['scheme'] == 'https' ? '443' : '80' );
+        $host = $p['host'];
 
         foreach ($this->ipsToHosts as $key => $ipToHost) {
-						$ip = trim($ipToHost['ip']);
+            $ip = trim($ipToHost['ip']);
             $purgeme = $schema . $host . $path . $pregex;
 
             $headers = [
@@ -409,6 +503,7 @@ class RCPurger {
 
             $ch = curl_init("{$host}{$path}");
             curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PURGE");
             curl_setopt($ch, CURLOPT_RESOLVE, array(
                 "{$host}:{$port}:{$ip}",
             ));
@@ -423,7 +518,7 @@ class RCPurger {
             $response = curl_exec($ch);
             $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
             
-            // $this->noticeMessage .= "{$host}:{$port}:{$ip}";
+            $this->noticeMessage .= "{$host}:{$port}:{$ip}:{$path}  ";
 
             curl_close($ch);
 						
