@@ -8,33 +8,37 @@
 	* Version: 1.0.0
 
 	 * License: http://www.apache.org/licenses/LICENSE-2.0
- 	* Text Domain: remote-cache-purger
- 	* Network: true
- 	*
- 	* @package remote-cache-purger
- 	*
- 	* Copyright 2020 Myros (email: myros@gmail.com)
- 	*
- 	* This file is part of Remote Cache Purger, a plugin for WordPress.
- 	*
- 	* Remote Cache Purger is free software: you can redistribute it and/or modify
- 	* it under the terms of the Apache License 2.0 license.
-	*
-	* Remote Cache Purger is distributed in the hope that it will be useful,
-	* but WITHOUT ANY WARRANTY; without even the implied warranty of
- 	* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+    * Text Domain: remote-cache-purger
+    * Network: true
+    *
+    * @package remote-cache-purger
+    *
+    * Copyright 2020 Myros (email: myros@gmail.com)
+    *
+    * This file is part of Remote Cache Purger, a plugin for WordPress.
+    *
+    * Remote Cache Purger is free software: you can redistribute it and/or modify
+    * it under the terms of the Apache License 2.0 license.
+    *
+    * Remote Cache Purger is distributed in the hope that it will be useful,
+    * but WITHOUT ANY WARRANTY; without even the implied warranty of
+     * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+     * 
+     * TODO:
+     * multiple domains
+     * cache purge key
 */
 
 class RCPurger {
-    protected $blogId;
+    protected $version = '1.0.0';
+    protected $userAgent = 'cURL WP Remote Cache Purger ';
+    protected $blogId; 
     protected $plugin = 'rcpurger';
     protected $prefix = 'remote_cache_';
     protected $purgeUrls = array();
     protected $varnishIp = null;
-    protected $varnishHost = null;
-    protected $dynamicHost = null;
+    protected $dynamicHosts = null;
     protected $ipsToHosts = array();
-    protected $statsJsons = array();
     protected $purgeKey = null;
     protected $getParam = 'purge_remote_cache';
     protected $postTypes = array('page', 'post');
@@ -45,9 +49,13 @@ class RCPurger {
     protected $truncateCount = 0;
     protected $debug = 0;
     protected $purgeOnMenuSave = false;
-    protected $currentTab;
     protected $enabled = false;
 
+    /**
+    * Constructor.
+    *
+    * @since 1.0
+    */
     public function __construct()
     {
         global $blog_id;
@@ -55,7 +63,7 @@ class RCPurger {
 
         $this->blogId = $blog_id;
         add_action('init', array(&$this, 'init'), 11);
-        add_action('activity_box_end', array($this, 'varnish_glance'), 100);
+        add_action('activity_box_end', array($this, 'remote_purger_glance'), 100);
     }
 
     public function init()
@@ -87,7 +95,7 @@ class RCPurger {
         $this->truncateNotice = get_option($this->prefix . 'truncate_notice');
         $this->debug = get_option($this->prefix . 'debug');
 
-        // send headers to varnish
+        // send headers to remote host
         // add_action('send_headers', array($this, 'send_headers'), 1000000);
 
         // logged in cookie
@@ -103,7 +111,7 @@ class RCPurger {
         if ($this->check_if_purgeable()) {
             add_action('admin_bar_menu', array($this, 'purge_cache_all_adminbar'), 100);
             if (isset($_GET[$this->getParam]) && check_admin_referer($this->plugin)) {
-                if ($this->varnishIp == null) {
+                if ($this->optServersIP == null) {
                     add_action('admin_notices' , array($this, 'purge_message_no_ips'));
                 } else {
                     $this->purge_cache();
@@ -143,25 +151,6 @@ class RCPurger {
         $this->currentTab = isset($_GET['tab']) ? $_GET['tab'] : 'settings';
     }
 
-    public function override_ttl($post)
-    {
-        $postId = isset($GLOBALS['wp_the_query']->post->ID) ? $GLOBALS['wp_the_query']->post->ID : 0;
-        if ($postId && (is_page() || is_single())) {
-            $ttl = get_post_meta($postId, $this->prefix . 'ttl', true);
-            if (trim($ttl) != '') {
-                Header('X-VC-TTL: ' . intval($ttl), true);
-            }
-        }
-    }
-
-    // public function override_homepage_ttl()
-    // {
-    //     if (is_home() || is_front_page()) {
-    //         $this->homepage_ttl = get_option($this->prefix . 'homepage_ttl');
-    //         Header('X-VC-TTL: ' . intval($this->homepage_ttl), true);
-    //     }
-    // }
-
     public function buffer_callback($buffer)
     {
         return $buffer;
@@ -181,22 +170,19 @@ class RCPurger {
 
     protected function setup_ips_to_hosts()
     {
-        $this->varnishIp = get_option($this->prefix . 'ips');
-        $this->varnishHost = get_option($this->prefix . 'hosts');
-        $this->dynamicHost = get_option($this->prefix . 'dynamic_host');
-        $this->statsJsons = get_option($this->prefix . 'stats_json_file');
-        $this->purgeOnMenuSave = get_option($this->prefix . 'purge_menu_save');
-        $varnishIps = explode(',', $this->varnishIp);
+        $this->optServersIP = get_option($this->prefix . 'ips');
+        $this->optDomains = get_option($this->prefix . 'domains');
+        $this->optPurgeOnMenuSave = get_option($this->prefix . 'purge_menu_save');
+
+        $serverIPS = explode(',', $this->optServersIP);
         // $varnishIp = apply_filters('rcpurger_varnish_ips', $varnishIp);
-        $varnishHost = explode(',', $this->varnishHost);
-        $varnishHost = apply_filters('rcpurger_varnish_hosts', $varnishHost);
-        $statsJsons = explode(',', $this->statsJsons);
-        foreach ($varnishIps as $key => $ip) {
-            $this->ipsToHosts[] = array(
-                'ip' => trim($ip)
-                // 'host' => $this->dynamicHost ? $_SERVER['HTTP_HOST'] : $varnishHost[$key],
-                // 'statsJson' => isset($statsJsons[$key]) ? $statsJsons[$key] : null
-            );
+        // $varnishHost = apply_filters('rcpurger_varnish_hosts', $varnishHost);
+        foreach ($serverIPS as $key => $ip) {
+            $this->ipsToHosts[] = trim($ip);
+            // $this->ipsToHosts[] = array(
+            //     trim($ip)
+            //     // 'host' => $this->dynamicHost ? $_SERVER['HTTP_HOST'] : $varnishHost[$key],
+            // );
         }
     }
 
@@ -292,7 +278,7 @@ class RCPurger {
 
     public function purge_message_no_ips()
     {
-        echo '<div id="message" class="error fade"><p><strong>' . __('Please set the IPs for Varnish!', $this->plugin) . '</strong></p></div>';
+        echo '<div id="message" class="error fade"><p><strong>' . __('Please set the IPs for remote server(s)!', $this->plugin) . '</strong></p></div>';
     }
 
     public function purge_post_page()
@@ -315,19 +301,20 @@ class RCPurger {
         ));
     }
 
-    public function varnish_glance()
+    // dashboard purge link
+    public function remote_purger_glance()
     {
         $url = wp_nonce_url(admin_url('?' . $this->getParam), $this->plugin);
         $button = '';
         $nopermission = '';
         $intro = '';
-        if ($this->varnishIp == null) {
-            $intro .= sprintf(__('Please setup Varnish IPs to be able to use <a href="%1$s">Varnish Caching</a>.', $this->plugin), 'http://wordpress.org/plugins/varnish-caching/');
+        if ($this->optServersIP == null) {
+            $intro .= sprintf(__('Please setup Remote Host IPs to be able to use <a href="%1$s">Remote Cache Purger</a>.', $this->plugin), 'http://wordpress.org/plugins/remote-cache-purger/');
         } else {
-            $intro .= sprintf(__('<a href="%1$s">Varnish Caching</a> automatically purges your posts when published or updated. Sometimes you need a manual flush.', $this->plugin), 'http://wordpress.org/plugins/varnish-caching/');
+            $intro .= sprintf(__('<a href="%1$s">Remote Cache Purge</a> automatically purges your posts when published or updated. Sometimes you need a manual flush.', $this->plugin), 'http://wordpress.org/plugins/remote-cache-purger/');
             $button .=  __('Press the button below to force it to purge your entire cache.', $this->plugin);
             $button .= '</p><p><span class="button"><a href="' . $url . '"><strong>';
-            $button .= __('Purge ALL Varnish Cache', $this->plugin);
+            $button .= __('Purge ALL Remote Cache', $this->plugin);
             $button .= '</strong></a></span>';
             $nopermission .=  __('You do not have permission to purge the cache for the whole site. Please contact your adminstrator.', $this->plugin);
         }
@@ -336,7 +323,7 @@ class RCPurger {
         } else {
             $text = $intro . ' ' . $nopermission;
         }
-        echo '<p class="varnish-glance">' . $text . '</p>';
+        echo '<p class="remote-purger-glance">' . $text . '</p>';
     }
 
     protected function get_register_events()
@@ -353,112 +340,31 @@ class RCPurger {
         return apply_filters('rcpurger_events', $actions);
     }
 
-    public function purge_cache()
+    public function purge_url($url)
     {
-        $serverIps = array_unique($this->$varnishIp);
-        $purgeUrls = array_unique($this->purgeUrls);
-        
-        
-        // $this->noticeMessage = $this->ipsToHosts . '<br/>';
+        // is it root path => /
+        $is_root = $url == '*' || untrailingslashit($url) == get_site_url();
 
-        // foreach (($this->ipsToHosts) as $server) {
-        //     $this->noticeMessage .= $server['ip'] . '<br/>';
-        // }
+        if ($is_root){
+            $urls_to_purge = array('*');
 
-        if (empty($purgeUrls)) {
-            if (isset($_GET[$this->getParam]) && $this->check_if_purgeable() && check_admin_referer($this->plugin)) {
-                $this->purge_url(home_url() .'/?vc-regex');
+            foreach ($this->ipsToHosts as $server) {
+                $this->purge_server($server, $urls_to_purge, false);
             }
         } else {
-            
-            $urls_to_purge = []; 
-            foreach($purgeUrls as $key => $url) {
+            $postid = url_to_postid($url);
+
+            if ($postid > 0) {
+                $this->purge_post($postid);
+            } else {
+                $urls_to_purge = [];
                 array_push($urls_to_purge, $url);
+
+                foreach ($this->ipsToHosts as $server) {
+                    $this->purge_server($server, $urls_to_purge);
+                }
             }
-
-           foreach ($this->ipsToHosts as $server) {
-               $responses = array();
-                $ip = trim($server['ip']);
-                $mh = curl_multi_init(); // cURL multi-handle
-                $requests = array(); // This will hold cURLS requests for each file
-                
-                $options = array(
-                    CURLOPT_FOLLOWLOCATION => true,
-                    CURLOPT_AUTOREFERER    => true, 
-                    CURLOPT_USERAGENT      => 'cURL Remote Cache Purger v1.0',
-                    // CURLOPT_HEADER         => true,
-                    // CURLOPT_NOBODY          => true,
-                    CURLOPT_SSL_VERIFYPEER => false,
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_CUSTOMREQUEST => "PURGE",
-                    CURLOPT_VERBOSE => false
-                );
-                
-                // for each missing
-                
-                foreach(array_unique($urls_to_purge) as $key => $url) {
-                    $parsedUrl = parse_url($url);
-                    $schema = $parsedUrl['scheme'];
-                    $port = ( $parsedUrl['scheme'] == 'https' ? '443' : '80' );
-                    $host = $parsedUrl['host'];
-                    if (isset($parsedUrl['path'])) {
-                        $path = $parsedUrl['path'];
-                    } else {
-                        $path = '';
-                    }
-
-                    $fullUrl = $schema . '://' . $host . $path;
-
-                    # $responses[$key] = $url;
-                    $responses[$key]['url'] = $url;
-                    $responses[$key]['ip'] = $ip;
-
-                    $requests[$key]['url'] = $url;
-                    $requests[$key]['curl_handle'] = curl_init($url);
-                    
-                    // Set cURL object options
-                    curl_setopt_array($requests[$key]['curl_handle'], $options);
-                    curl_setopt($requests[$key]['curl_handle'], CURLOPT_VERBOSE, true);
-                    curl_setopt($requests[$key]['curl_handle'], CURLOPT_RESOLVE, array(
-                        "{$host}:{$port}:{$ip}",
-                    ));
-
-                    // Add cURL object to multi-handle
-                    curl_multi_add_handle($mh, $requests[$key]['curl_handle']);
-                }
-
-                
-                // Do while all request have been completed
-                do {
-                    curl_multi_exec($mh, $running);
-                } while ($running);
-                
-                $this->noticeMessage .= 'server: ' . $ip . '<br/>';
-                
-                curl_multi_close($mh);
-                
-                // }
-                // $this->purge_url($url);
-                // Collect all data here and clean up
-                foreach ($requests as $key => $request) {
-    
-                    $responses[$key]['HTTP_CODE'] = curl_getinfo($request['curl_handle'], CURLINFO_HTTP_CODE);
-    
-                    curl_multi_remove_handle($mh, $request['curl_handle']); //assuming we're being responsible about our resource management
-    
-                    
-                    # curl_close($request);                    //being responsible again.  THIS MUST GO AFTER curl_multi_getcontent();
-                }
-                // $this->noticeMessage .= '<br/>';
-                foreach($responses as $key => $response) {
-                    $this->noticeMessage .= $response['HTTP_CODE'] . ' ' .  $response['url'] . '<br />';
-                }
-            } 
-            
         }
-        
-        
-        
 
         if ($this->truncateNotice && $this->truncateNoticeShown == false) {
             $this->truncateNoticeShown = true;
@@ -468,90 +374,31 @@ class RCPurger {
         add_action('admin_notices' , array($this, 'purge_message'));
     }
 
-    public function purge_url($url)
+    // collecting pages
+    public function collect_urls_by_url()
     {
-        $p = parse_url($url);
-
-        if (isset($p['query']) && ($p['query'] == 'vc-regex')) {
-            $pregex = '.*';
-            $purgemethod = 'regex';
-        } else {
-            $pregex = '';
-            $purgemethod = 'default';
+        // Do not purge menu items
+        if (get_post_type($post) == 'nav_menu_item' && $this->optPurgeOnMenuSave == false) {
+            return;
         }
 
-        if (isset($p['path'])) {
-            $path = $p['path'];
-        } else {
-            $path = '';
+
+    }
+
+    public function collect_urls_by_id($postId, $post=null)
+    {
+        // Do not purge menu items
+        if (get_post_type($post) == 'nav_menu_item' && $this->optPurgeOnMenuSave == false) {
+            return;
         }
 
-        $schema = $p['scheme'];
-        $port = ( $p['scheme'] == 'https' ? '443' : '80' );
-        $host = $p['host'];
 
-        foreach ($this->ipsToHosts as $key => $ipToHost) {
-            $ip = trim($ipToHost['ip']);
-            $purgeme = $schema . $host . $path . $pregex;
-
-            $headers = [
-                "X-Cache-Purge: 1",
-                "X-Cache-Purge-Host: {$host}",
-                "X-Cache-Purge-IP: {$ip}",
-                "Location: {$host}"
-            ];
-
-            $ch = curl_init("{$host}{$path}");
-            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PURGE");
-            curl_setopt($ch, CURLOPT_RESOLVE, array(
-                "{$host}:{$port}:{$ip}",
-            ));
-
-            
-            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_VERBOSE, true);
-            // curl_setopt($ch, CURLOPT_HEADER, true); 
-            // curl_setopt($ch, CURLOPT_NOBODY, true);
-            
-            $response = curl_exec($ch);
-            $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            
-            $this->noticeMessage .= "{$host}:{$port}:{$ip}:{$path}  ";
-
-            curl_close($ch);
-						
-            if ($response instanceof WP_Error) {
-                foreach ($response->errors as $error => $errors) {
-                    $this->noticeMessage .= '<br />Error ' . $error . '<br />';
-                    foreach ($errors as $error => $description) {
-                        $this->noticeMessage .= ' - ' . $description . '<br />';
-                    }
-                }
-            } else {
-                if ($this->truncateNotice && $this->truncateCount <= 2 || $this->truncateNotice == false) {
-										$this->noticeMessage .= '' . "{$ip} ({$httpcode}) => " . $purgeme;
-										
-                    preg_match("/<title>(.*)<\/title>/i", $response, $matches);
-										// TODO
-                    // $this->noticeMessage .= ' => <br /> ' . isset($matches[1]) ? " => " . $matches[1] : '';
-                    $this->noticeMessage .= '<br />';
-                    if ($this->debug) {
-                        // $this->noticeMessage .= $response . "<br />";
-                    }
-                }
-                $this->truncateCount++;
-            }
-        }
-
-        do_action('rcpurger_after_purge_url', $url, $purgeme);
     }
 
     public function purge_post($postId, $post=null)
     {
         // Do not purge menu items
-        if (get_post_type($post) == 'nav_menu_item' && $this->purgeOnMenuSave == false) {
+        if (get_post_type($post) == 'nav_menu_item' && $this->optPurgeOnMenuSave == false) {
             return;
         }
 
@@ -631,6 +478,117 @@ class RCPurger {
         // @param int $postId the id of the new/edited post
         $this->purgeUrls = apply_filters('rcpurger_purge_urls', $this->purgeUrls, $postId);
         $this->purge_cache();
+    }
+
+    public function purge_cache()
+    {
+        $purgeUrls = array_unique($this->purgeUrls);
+
+        if (empty($purgeUrls)) {
+            if (isset($_GET[$this->getParam]) && $this->check_if_purgeable() && check_admin_referer($this->plugin)) {
+                $this->purge_url(home_url() .'/?vc-regex');
+            }
+        } else {
+            
+            $urls_to_purge = []; 
+            foreach($purgeUrls as $key => $url) {
+                array_push($urls_to_purge, $url);
+            }
+
+            foreach ($this->ipsToHosts as $server) {
+                $this->purge_server($server, $purgeUrls);
+            }
+        }
+        
+        if ($this->truncateNotice && $this->truncateNoticeShown == false) {
+            $this->truncateNoticeShown = true;
+            $this->noticeMessage .= '<br />' . __('Truncate message activated. Showing only first 3 messages.', $this->plugin);
+        }
+
+        add_action('admin_notices' , array($this, 'purge_message'));
+    }
+    
+    public function purge_server_url($url) {
+
+
+    }
+
+
+    //www.myros.net:443:209.126.6.141:/ 209.126.6.141 (200) => httpswww.myros.net/
+
+    // page: 200 https://www.myros.net/author/maginfo/
+
+    public function purge_server($server_ip, $urls_to_purge, $parse = true)
+    {
+        $responses = array();
+        $ip = trim($server_ip);
+        $mh = curl_multi_init(); // cURL multi-handle
+        $requests = array(); // This will hold cURLS requests for each file
+        
+        $options = array(
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_AUTOREFERER    => true, 
+            CURLOPT_USERAGENT      => $this->userAgent,
+            // CURLOPT_HEADER         => true,
+            // CURLOPT_NOBODY          => true,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST => "PURGE",
+            CURLOPT_CONNECTTIMEOUT => 0,
+            CURLOPT_TIMEOUT => 10, //timeout in seconds
+            CURLOPT_VERBOSE => true
+        );
+        
+        foreach(array_unique($urls_to_purge) as $key => $url) {
+            
+            if ($url == '*') {
+                $parsedUrl = parse_url(get_site_url());
+                $path = $url;
+            } else {
+                $parsedUrl = parse_url($url);
+                $path = isset($parsedUrl['path']) ? $parsedUrl['path'] : '';
+            }
+
+            $schema = $parsedUrl['scheme'];
+            $port = ( $parsedUrl['scheme'] == 'https' ? '443' : '80' );
+            $host = untrailingslashit($parsedUrl['host']);
+            
+            $fullUrl = $schema . '://' . $host . '/' . $path;
+            
+            $this->noticeMessage .= 'furl: ' . $fullUrl . '<br/>';
+
+            $responses[$key]['url'] = $url;
+            $responses[$key]['ip'] = $ip;
+
+            $requests[$key]['url'] = $url;
+            $requests[$key]['curl_handle'] = curl_init($fullurl);
+            
+            // Set cURL object options
+            curl_setopt_array($requests[$key]['curl_handle'], $options);
+            curl_setopt($requests[$key]['curl_handle'], CURLOPT_RESOLVE, array(
+                "{$host}:{$port}:{$ip}",
+            ));
+
+            // Add cURL object to multi-handle
+            curl_multi_add_handle($mh, $requests[$key]['curl_handle']);
+        }
+        // Do while all request have been completed
+        do {
+            curl_multi_exec($mh, $running);
+        } while ($running);
+        
+        $this->noticeMessage .= 'server: ' . $ip . '<br/>';
+        
+        foreach ($requests as $key => $request) {
+            $responses[$key]['HTTP_CODE'] = curl_getinfo($request['curl_handle'], CURLINFO_HTTP_CODE);
+            curl_multi_remove_handle($mh, $request['curl_handle']); //assuming we're being responsible about our resource management
+        }
+        
+        curl_multi_close($mh);
+
+        foreach($responses as $key => $response) {
+            $this->noticeMessage .= $response['HTTP_CODE'] . ' ' .  $response['url'] . '<br />';
+        }
     }
 
     public function wp_login()
@@ -756,23 +714,13 @@ class RCPurger {
         <?php
     }
 
-    public function remote_cache_hosts()
-    {
-        ?>
-            <input type="text" name="remote_cache_hosts" id="remote_cache_hosts" size="100" value="<?php echo get_option($this->prefix . 'hosts'); ?>" />
-            <p class="description">
-                <?=__('Comma separated hostnames. Varnish uses the hostname to create the cache hash. For each IP, you must set a hostname.<br />Use this option if you use multiple domains.', $this->plugin)?>
-            </p>
-        <?php
-    }
-
     public function remote_cache_purge_key()
     {
         ?>
             <input type="text" name="remote_cache_purge_key" id="remote_cache_purge_key" size="100" maxlength="64" value="<?php echo get_option($this->prefix . 'purge_key'); ?>" />
             <span onclick="generateHash(64, 0, 'remote_cache_purge_key'); return false;" class="dashicons dashicons-image-rotate" title="<?=__('Generate')?>"></span>
             <p class="description">
-                <?=__('Key used to purge Varnish cache. It is sent to Varnish as X-VC-Purge-Key header. Use a SHA-256 hash.<br />If you can\'t use ACL\'s, use this option. You can set the `purge key` in lib/purge.vcl.<br />Search the default value ff93c3cb929cee86901c7eefc8088e9511c005492c6502a930360c02221cf8f4 to find where to replace it.', $this->plugin)?>
+                <?=__('Key used to purge remote cache. It is sent to Remote Cache Servers as X-VC-Purge-Key header. Use a SHA-256 hash.<br />If you can\'t use ACL\'s, use this option. You can set the `purge key` in lib/purge.vcl.<br />Search the default value ff93c3cb929cee86901c7eefc8088e9511c005492c6502a930360c02221cf8f4 to find where to replace it.', $this->plugin)?>
             </p>
         <?php
     }
@@ -782,7 +730,7 @@ class RCPurger {
         ?>
             <input type="checkbox" name="remote_cache_truncate_notice" value="1" <?php checked(1, get_option($this->prefix . 'truncate_notice'), true); ?> />
             <p class="description">
-                <?=__('When using multiple Varnish Cache servers, RCPurger shows too many `Trying to purge URL` messages. Check this option to truncate that message.', $this->plugin)?>
+                <?=__('When using multiple Cache servers, RCPurger shows too many `Trying to purge URL` messages. Check this option to truncate that message.', $this->plugin)?>
             </p>
         <?php
     }
@@ -822,7 +770,7 @@ class RCPurger {
             <p class="description"><?=__('Relative URL to purge. Example : /simple-post or /uncategorized/hello-world. It will clear that URL page (and related pages) cache on ALL reported servers', $this->plugin)?></p>
         <?php
     }
-		// end of console
+    // end of console
 
     public function post_row_actions($actions, $post)
     {
@@ -842,6 +790,12 @@ class RCPurger {
             ));
         }
         return $actions;
+    }
+
+    public function get_user_agent()
+    {
+        
+        return $this->$userAgent . $this->$version;
     }
 }
 
