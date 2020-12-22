@@ -50,6 +50,7 @@ class RCPurger {
     protected $debug = 0;
     protected $purgeOnMenuSave = false;
     protected $enabled = false;
+    protected $responses = array();
 
     /**
     * Constructor.
@@ -349,6 +350,7 @@ class RCPurger {
             $urls_to_purge = array('*');
 
             foreach ($this->ipsToHosts as $server) {
+                $this->responses = [];
                 $this->purge_server($server, $urls_to_purge, false);
             }
         } else {
@@ -361,6 +363,7 @@ class RCPurger {
                 array_push($urls_to_purge, $url);
 
                 foreach ($this->ipsToHosts as $server) {
+                    $this->responses = [];
                     $this->purge_server($server, $urls_to_purge);
                 }
             }
@@ -486,7 +489,7 @@ class RCPurger {
 
         if (empty($purgeUrls)) {
             if (isset($_GET[$this->getParam]) && $this->check_if_purgeable() && check_admin_referer($this->plugin)) {
-                $this->purge_url(home_url() .'/?vc-regex');
+                $this->purge_url(home_url());
             }
         } else {
             
@@ -520,11 +523,13 @@ class RCPurger {
 
     public function purge_server($server_ip, $urls_to_purge, $parse = true)
     {
-        $responses = array();
+        // $responses = $this->responses;
+        $r = array();
         $ip = trim($server_ip);
         $mh = curl_multi_init(); // cURL multi-handle
         $requests = array(); // This will hold cURLS requests for each file
-        
+         $this->responses = [];
+
         $options = array(
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_AUTOREFERER    => true, 
@@ -542,53 +547,82 @@ class RCPurger {
         foreach(array_unique($urls_to_purge) as $key => $url) {
             
             if ($url == '*') {
-                $parsedUrl = parse_url(get_site_url());
-                $path = $url;
-            } else {
-                $parsedUrl = parse_url($url);
-                $path = isset($parsedUrl['path']) ? $parsedUrl['path'] : '';
+                $url = trailingslashit(get_site_url()) . '*'; // force url => *
             }
-
+            
+            $parsedUrl = parse_url($url);
+            $path = isset($parsedUrl['path']) ? $parsedUrl['path'] : '';
             $schema = $parsedUrl['scheme'];
             $port = ( $parsedUrl['scheme'] == 'https' ? '443' : '80' );
-            $host = untrailingslashit($parsedUrl['host']);
+            $host = $parsedUrl['host'];
             
             $fullUrl = $schema . '://' . $host . '/' . $path;
             
-            $this->noticeMessage .= 'furl: ' . $fullUrl . '<br/>';
+            $handle = curl_init($url);
+            $array_key = (int) $handle;
+            $requests[$array_key]['curl_handle'] = $handle;
 
-            $responses[$key]['url'] = $url;
-            $responses[$key]['ip'] = $ip;
+            $requests[$array_key]['url'] = $url;
 
-            $requests[$key]['url'] = $url;
-            $requests[$key]['curl_handle'] = curl_init($fullurl);
+            $this->responses[$array_key] = array(
+                'url' => $url,
+                'ip' => $ip
+            );
             
             // Set cURL object options
-            curl_setopt_array($requests[$key]['curl_handle'], $options);
-            curl_setopt($requests[$key]['curl_handle'], CURLOPT_RESOLVE, array(
+            curl_setopt_array($requests[$array_key]['curl_handle'], $options);
+            curl_setopt($requests[$array_key]['curl_handle'], CURLOPT_RESOLVE, array(
                 "{$host}:{$port}:{$ip}",
             ));
+            curl_setopt($requests[$array_key]['curl_handle'], CURLOPT_HEADERFUNCTION, array($this, 'headerCallback'));
 
             // Add cURL object to multi-handle
-            curl_multi_add_handle($mh, $requests[$key]['curl_handle']);
+            curl_multi_add_handle($mh, $requests[$array_key]['curl_handle']);
         }
+        
         // Do while all request have been completed
         do {
             curl_multi_exec($mh, $running);
         } while ($running);
         
-        $this->noticeMessage .= 'server: ' . $ip . '<br/>';
+        $this->noticeMessage .= '<br/>SERVER: ' . $ip . '<br/>';
         
         foreach ($requests as $key => $request) {
-            $responses[$key]['HTTP_CODE'] = curl_getinfo($request['curl_handle'], CURLINFO_HTTP_CODE);
+            $this->responses[$key]['HTTP_CODE'] = curl_getinfo($request['curl_handle'], CURLINFO_HTTP_CODE);
             curl_multi_remove_handle($mh, $request['curl_handle']); //assuming we're being responsible about our resource management
         }
         
         curl_multi_close($mh);
 
-        foreach($responses as $key => $response) {
-            $this->noticeMessage .= $response['HTTP_CODE'] . ' ' .  $response['url'] . '<br />';
+        foreach($this->responses as $key => $response) {
+            if(isset($response['headers']['x-purged-count'] )) {
+                $this->noticeMessage .= 'PURGED: ' . $response['headers']['x-purged-count'];
+            } else {
+                $this->noticeMessage .= 'PURGED =>   ' ;
+            }
+
+            $this->noticeMessage .= ' | ' . $response['HTTP_CODE'] . ' | ' .  $response['url'];
+
+            $this->noticeMessage .= '<br/>';
         }
+    }
+
+    private function headerCallback($ch, $header)
+    {
+        $_header = trim($header);
+        $colonPos= strpos($_header, ':');
+        if($colonPos > 0)
+        {
+            $key = substr($_header, 0, $colonPos);
+            $val = preg_replace('/^\W+/','',substr($_header, $colonPos));
+            $this->responses[$this->getKey($ch)]['headers'][$key] = $val;
+        }
+        return strlen($header);
+    }
+    
+    public function getKey($ch)
+    {
+        return (int)$ch;
     }
 
     public function wp_login()
