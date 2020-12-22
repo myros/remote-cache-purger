@@ -519,7 +519,7 @@ class RemoteCacheSettings {
 	/**
 	 * Call the Check Caching
 	 *
-	 * @since 4.6.0
+	 * @since 1.0.0
 	 */
 	public function check_caching_page() {
 		?>

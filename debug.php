@@ -85,7 +85,7 @@ class RemoteCacheDebug {
 	 * @static
 	 * @param mixed $src - URL of CSS or JS file.
 	 * @return url
-	 * @since 4.6.0
+	 * @since 1.0.0
 	 */
 	public static function nocache_cssjs( $src ) {
 		$src = remove_query_arg( 'ver', $src );
@@ -100,7 +100,7 @@ class RemoteCacheDebug {
 	 * @static
 	 * @param mixed $input - The URL to validate.
 	 * @return string
-	 * @since 4.6.0
+	 * @since 1.0.0
 	 */
 	public static function is_url_valid( $input ) {
 
