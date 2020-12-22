@@ -100,7 +100,7 @@ class RCPurger {
         }
 
         // purge all cache from admin bar
-        if ($rcp_tools->check_if_purgeable()) {
+        if ($this->check_if_purgeable()) {
             add_action('admin_bar_menu', array($this, 'purge_cache_all_adminbar'), 100);
             if (isset($_GET[$this->getParam]) && check_admin_referer($this->plugin)) {
                 if ($this->optServersIP == null) {
