@@ -1,13 +1,12 @@
 <?php
 /**
  	* Plugin Name: Remote Cache Purger
-	* Plugin URI: https://www.myros.net/
-	* Description: Clearing cache on remote NGINX server
+	* Description: Clearing cache on remote NGINX server (Kubernetes)
 	* Author: Myros
 	* Author URI: https://www.myros.net/
 	* Version: 1.0.0
 
-	 * License: http://www.apache.org/licenses/LICENSE-2.0
+	* License: http://www.apache.org/licenses/LICENSE-2.0
     * Text Domain: remote-cache-purger
     * Network: true
     *
