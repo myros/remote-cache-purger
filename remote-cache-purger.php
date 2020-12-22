@@ -42,7 +42,6 @@ class RCPurger {
     protected $purgeKey = null;
     protected $getParam = 'purge_remote_cache';
     protected $postTypes = array('page', 'post');
-    protected $customFields = array();
     protected $noticeMessage = '';
     protected $truncateNotice = false;
     protected $truncateNoticeShown = false;
@@ -71,18 +70,18 @@ class RCPurger {
     {
         load_plugin_textdomain($this->plugin, false, plugin_basename( dirname( __FILE__ ) ) . '/languages' );
 
-        $this->customFields = array(
-            array(
-                'name'          => 'ttl',
-                'title'         => 'TTL',
-                'description'   => __('Not required. If filled in overrides default TTL of %s seconds. 0 means no caching.', $this->plugin),
-                'type'          => 'text',
-                'scope'         =>  array('post', 'page'),
-                'capability'    => 'manage_options'
-            )
-        );
-        $this->useSsl = get_option($this->prefix . 'ssl');
-				$this->useSsl = get_option($this->prefix . 'ssl');
+        // $this->customFields = array(
+        //     array(
+        //         'name'          => 'ttl',
+        //         'title'         => 'TTL',
+        //         'description'   => __('Not required. If filled in overrides default TTL of %s seconds. 0 means no caching.', $this->plugin),
+        //         'type'          => 'text',
+        //         'scope'         =>  array('post', 'page'),
+        //         'capability'    => 'manage_options'
+        //     )
+        // );
+        // $this->useSsl = get_option($this->prefix . 'ssl');
+		// 		$this->useSsl = get_option($this->prefix . 'ssl');
 
         $this->postTypes = get_post_types(array('show_in_rest' => true));
 
@@ -100,8 +99,8 @@ class RCPurger {
         // add_action('send_headers', array($this, 'send_headers'), 1000000);
 
         // logged in cookie
-        add_action('wp_login', array($this, 'wp_login'), 1000000);
-        add_action('wp_logout', array($this, 'wp_logout'), 1000000);
+        // add_action('wp_login', array($this, 'wp_login'), 1000000);
+        // add_action('wp_logout', array($this, 'wp_logout'), 1000000);
 
         // register events to purge post
         foreach ($this->get_register_events() as $event) {
@@ -176,94 +175,8 @@ class RCPurger {
         $this->optPurgeOnMenuSave = get_option($this->prefix . 'purge_menu_save');
 
         $serverIPS = explode(',', $this->optServersIP);
-        // $varnishIp = apply_filters('rcpurger_varnish_ips', $varnishIp);
-        // $varnishHost = apply_filters('rcpurger_varnish_hosts', $varnishHost);
         foreach ($serverIPS as $key => $ip) {
             $this->ipsToHosts[] = trim($ip);
-            // $this->ipsToHosts[] = array(
-            //     trim($ip)
-            //     // 'host' => $this->dynamicHost ? $_SERVER['HTTP_HOST'] : $varnishHost[$key],
-            // );
-        }
-    }
-
-    public function create_custom_fields()
-    {
-        if (function_exists('add_meta_box')) {
-            foreach ($this->postTypes as $postType) {
-                add_meta_box($this->plugin, __('Remote Caching', $this->plugin), array($this, 'display_custom_fields'), $postType, 'side', 'high');
-            }
-        }
-    }
-
-    public function save_custom_fields($post_id, $post)
-    {
-        if (!isset($_POST['vc-custom-fields_wpnonce']) || !wp_verify_nonce($_POST['vc-custom-fields_wpnonce'], 'vc-custom-fields'))
-            return;
-        if (!current_user_can('edit_post', $post_id))
-            return;
-        if (!in_array($post->post_type, $this->postTypes))
-            return;
-        foreach ($this->customFields as $customField) {
-            if (current_user_can($customField['capability'], $post_id)) {
-                if (isset($_POST[$this->prefix . $customField['name']]) && trim($_POST[$this->prefix . $customField['name']]) != '') {
-                    update_post_meta($post_id, $this->prefix . $customField['name'], $_POST[$this->prefix . $customField['name']]);
-                } else {
-                    delete_post_meta($post_id, $this->prefix . $customField['name']);
-                }
-            }
-        }
-    }
-
-    public function display_custom_fields()
-    {
-        global $post;
-        wp_nonce_field('vc-custom-fields', 'vc-custom-fields_wpnonce', false, true);
-        foreach ($this->customFields as $customField) {
-            // Check scope
-            $scope = $customField['scope'];
-            $output = false;
-            foreach ($scope as $scopeItem) {
-                switch ($scopeItem) {
-                    default: {
-                        if ($post->post_type == $scopeItem)
-                            $output = true;
-                        break;
-                    }
-                }
-                if ($output) break;
-            }
-            // Check capability
-            if (!current_user_can($customField['capability'], $post->ID))
-                $output = false;
-            // Output if allowed
-            if ($output) {
-                switch ($customField['type']) {
-                    case "checkbox": {
-                        // Checkbox
-                        echo '<p><strong>' . $customField['title'] . '</strong></p>';
-                        echo '<label class="screen-reader-text" for="' . $this->prefix . $customField['name'] . '">' . $customField['title'] . '</label>';
-                        echo '<p><input type="checkbox" name="' . $this->prefix . $customField['name'] . '" id="' . $this->prefix . $customField['name'] . '" value="yes"';
-                        if (get_post_meta($post->ID, $this->prefix . $customField['name'], true ) == "yes")
-                            echo ' checked="checked"';
-                        echo '" style="width: auto;" /></p>';
-                        break;
-                    }
-                    default: {
-                        // Plain text field
-                        echo '<p><strong>' . $customField['title'] . '</strong></p>';
-                        $value = get_post_meta($post->ID, $this->prefix . $customField[ 'name' ], true);
-                        echo '<p><input type="text" name="' . $this->prefix . $customField['name'] . '" id="' . $this->prefix . $customField['name'] . '" value="' . $value . '" /></p>';
-                        break;
-                    }
-                }
-            } else {
-                echo '<p><strong>' . $customField['title'] . '</strong></p>';
-                $value = get_post_meta($post->ID, $this->prefix . $customField[ 'name' ], true);
-                echo '<p><input type="text" name="' . $this->prefix . $customField['name'] . '" id="' . $this->prefix . $customField['name'] . '" value="' . $value . '" disabled /></p>';
-            }
-            $default_ttl = get_option($this->prefix . 'ttl');
-            if ($customField['description']) echo '<p>' . sprintf($customField['description'], $default_ttl) . '</p>';
         }
     }
 
@@ -330,12 +243,12 @@ class RCPurger {
     protected function get_register_events()
     {
         $actions = array(
-            // 'publish_future_post',
-            // 'save_post', 
-            // 'deleted_post',
-            // 'trashed_post',
-            // 'edit_post',
-            // 'delete_attachment',
+            'publish_future_post',
+            'save_post', 
+            'deleted_post',
+            'trashed_post',
+            'edit_post',
+            'delete_attachment',
             'switch_theme',
         );
         return apply_filters('rcpurger_events', $actions);
@@ -493,7 +406,7 @@ class RCPurger {
             }
         } else {
             
-            $urls_to_purge = []; 
+            $urls_to_purge = [];  
             foreach($purgeUrls as $key => $url) {
                 array_push($urls_to_purge, $url);
             }
@@ -512,14 +425,8 @@ class RCPurger {
     }
     
     public function purge_server_url($url) {
-
-
     }
 
-
-    //www.myros.net:443:209.126.6.141:/ 209.126.6.141 (200) => httpswww.myros.net/
-
-    // page: 200 https://www.myros.net/author/maginfo/
 
     public function purge_server($server_ip, $urls_to_purge, $parse = true)
     {
@@ -596,9 +503,9 @@ class RCPurger {
 
         foreach($this->responses as $key => $response) {
             if(isset($response['headers']['x-purged-count'] )) {
-                $this->noticeMessage .= 'PURGED: ' . $response['headers']['x-purged-count'];
+                $this->noticeMessage .= 'PURGE: (' . $response['headers']['x-purged-count'] . ')';
             } else {
-                $this->noticeMessage .= 'PURGED =>   ' ;
+                $this->noticeMessage .= 'PURGE (0)' ;
             }
 
             $this->noticeMessage .= ' | ' . $response['HTTP_CODE'] . ' | ' .  $response['url'];
@@ -625,21 +532,21 @@ class RCPurger {
         return (int)$ch;
     }
 
-    public function wp_login()
-    {
-        $cookie = get_option($this->prefix . 'cookie');
-        if (!empty($cookie)) {
-            setcookie($cookie, 1, time()+3600*24*100, COOKIEPATH, COOKIE_DOMAIN, false, true);
-        }
-    }
+    // public function wp_login()
+    // {
+    //     $cookie = get_option($this->prefix . 'cookie');
+    //     if (!empty($cookie)) {
+    //         setcookie($cookie, 1, time()+3600*24*100, COOKIEPATH, COOKIE_DOMAIN, false, true);
+    //     }
+    // }
 
-    public function wp_logout()
-    {
-        $cookie = get_option($this->prefix . 'cookie');
-        if (!empty($cookie)) {
-            setcookie($cookie, null, time()-3600*24*100, COOKIEPATH, COOKIE_DOMAIN, false, true);
-        }
-    }
+    // public function wp_logout()
+    // {
+    //     $cookie = get_option($this->prefix . 'cookie');
+    //     if (!empty($cookie)) {
+    //         setcookie($cookie, null, time()-3600*24*100, COOKIEPATH, COOKIE_DOMAIN, false, true);
+    //     }
+    // }
 
     public function admin_menu()
     {
@@ -789,7 +696,7 @@ class RCPurger {
         <?php
     }
 
-		// console
+    // console
     public function console_page_fields()
     {
         add_settings_section('console', __("Console", $this->plugin), null, $this->prefix . 'console');
