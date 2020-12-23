@@ -104,7 +104,7 @@ class Main {
 
         // purge all cache from admin bar
         if ($this->check_if_purgeable()) {
-            add_action('admin_bar_menu', array($this, 'purge_cache_all_adminbar'), 100);
+            add_action('admin_bar_menu', array($this, 'purge_cache_from_adminbar'), 100);
             if (isset($_GET[$this->getParam]) && check_admin_referer($this->plugin)) {
                 if ($this->optServersIP == null) {
                     add_action('admin_notices' , array($this, 'purge_message_no_ips'));
@@ -149,6 +149,9 @@ class Main {
         $this->write_log('Init', 'End');
     }
 
+    /**
+    * @since 1.0.1
+    */
     public function wp_login()
     {
         $cookie = get_option($this->prefix . 'cookie');
@@ -157,6 +160,9 @@ class Main {
         }
     }
 
+    /**
+    * @since 1.0.1
+    */
     public function wp_logout()
     {
         $cookie = get_option($this->prefix . 'cookie');
@@ -165,7 +171,6 @@ class Main {
         }
     }
 
-    
     /**
     * @since 1.0
     */
@@ -248,14 +253,14 @@ class Main {
     /**
     * @since 1.0
     */
-    public function purge_cache_all_adminbar($admin_bar)
+    public function purge_cache_from_adminbar($admin_bar)
     {
         $admin_bar->add_menu(array(
             'id'    => 'purge-all-remote-cache',
-            'title' => __('Purge ALL Remote Cache', $this->plugin),
+            'title' => __('Purge Cache', $this->plugin),
             'href'  => wp_nonce_url(add_query_arg($this->getParam, 1), $this->plugin),
             'meta'  => array(
-                'title' => __('Purge ALL Remote Cache', $this->plugin),
+                'title' => __('Purge Cache', $this->plugin),
             )
         ));
     }
