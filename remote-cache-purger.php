@@ -1,10 +1,10 @@
 <?php
 /**
      * Plugin Name: Remote Cache Purger
-     * Description: Clearing cache on remote NGINX server (Kubernetes)
+     * Description: Clearing cache on remote NGINX servers (Kubernetes)
      * Author: Myros
      * Author URI: https://www.myros.net/
-     * Version: 1.0.0
+     * Version: 1.0.1
      
      * License: http://www.apache.org/licenses/LICENSE-2.0
      * Text Domain: remote-cache-purger
@@ -28,11 +28,18 @@
 
 namespace RemoteCachePurger;
 
+require_once __DIR__ . '/includes/queue.php';
+
 class Main {
 
+    const NAME = 'remote-cache-purger';
+
+    private static $instance = null;
+	private $queue = null;
+    private $admin = null;
+    
     // general
-    protected $version = '1.0.0';
-    protected $userAgent = 'cURL WP Remote Cache Purger ';
+
     protected $blogId; 
     protected $plugin = 'cache-purger';
     protected $prefix = 'remote_cache_'; // remote cache purger
@@ -41,7 +48,7 @@ class Main {
     protected $serverIPS = array();
     protected $getParam = 'purge_remote_cache';
     protected $postTypes = array('page', 'post');
-    protected $responses = array();
+    // protected $responses = array();
     
     protected $noticeMessage = '';
     protected $truncateNotice = false;
@@ -72,15 +79,119 @@ class Main {
         defined($this->plugin) || define($this->plugin, true);
 
         $this->blogId = $blog_id;
+
+        $this->write_log(plugins_url( 'assets/js/admin.js', dirname( __FILE__ ) ));
         add_action('init', array(&$this, 'init'), 11);
         add_action('activity_box_end', array($this, 'remote_purger_glance'), 100);
+        add_action('admin_enqueue_scripts', array( $this, 'add_scripts') );
+        add_action('wp_ajax_remote_cache_purge_all', array( $this, 'purgejs' ) );
+        add_action('wp_ajax_remote_cache_purge_item', array( $this, 'purgejs_item' ) );
+        add_action('wp_ajax_remote_cache_purge_url', array( $this, 'purgejs_url' ) );
     }
 
+    /**
+    * @since 1.0.1
+    */
+    public function purgejs() {
+       $this->write_log('PURGE');
+       $this->write_log(wp_verify_nonce( $_POST['wp_nonce'], self::NAME . '-purge-wp-nonce' ));
+       $this->write_log(wp_verify_nonce( $_POST['wp_nonce']));
+
+        if ( wp_verify_nonce( $_POST['wp_nonce'], self::NAME . '-purge-wp-nonce' ) && $this->purgeAll() ) {
+            echo json_encode( array(
+                'success' => true,
+                'message' => __( $this->queue->noticeMessage, 'remote-cache-purger' )
+            ) );
+
+        } else {
+            echo json_encode( array(
+                'success' => false,
+                'message' => __( 'The Remote Cache could not be purged!', 'remote-cache-purger' )
+            ) );
+        }
+
+        exit();
+    }
+
+    /**
+    * @since 1.0.1
+    */
+    public function purgejs_item($postid) {
+        $this->write_log('purge item');
+
+        $id = $_POST['id'];
+
+        if ( wp_verify_nonce( $_POST['wp_nonce'], self::NAME . '-purge-wp-nonce' )) {
+            if ($this->purgeItem($id)) {
+                echo json_encode( array(
+                    'success' => true,
+                    'message' => __( $this->queue->noticeMessage, 'remote-cache-purger' )
+                ) );
+
+                exit();
+            }
+        }
+
+        echo json_encode( array(
+            'success' => false,
+            'message' => __( 'Remote Cache could not be purged!', 'remote-cache-purger' )
+        ) );
+
+        exit();
+    }
+
+    /**
+    * @since 1.0.1
+    */
+    public function purgejs_url($url) {
+        $this->write_log('purge item');
+
+        $url = $_POST['url'];
+
+        if ( wp_verify_nonce( $_POST['wp_nonce'], self::NAME . '-purge-wp-nonce' )) {
+            if ($this->purgeUrl($url)) {
+                echo json_encode( array(
+                    'success' => true,
+                    'message' => __( $this->queue->noticeMessage, 'remote-cache-purger' )
+                ) );
+
+                exit();
+            }
+        }
+
+        echo json_encode( array(
+            'success' => false,
+            'message' => __( 'Remote URL could not be purged!', 'remote-cache-purger' )
+        ) );
+
+        exit();
+    }
+    
+    /**
+    * @since 1.0.1
+    */
+    public static function getInstance() {
+		if ( ! self::$instance ) {
+			self::$instance = new self();
+		}
+		return self::$instance;
+    }
+    
+    /**
+    * @since 1.0.1
+    */
+    public function add_scripts() {
+		wp_register_script( self::NAME, plugins_url( 'cache-purger/assets/js/admin.js', dirname( __FILE__ ) ) );
+		wp_enqueue_script( self::NAME );
+    }
+    
     /**
     * @since 1.0
     */
     public function init()
     {
+        $this->queue = new Queue();
+
         $this->write_log('Init', 'Start');
         $this->postTypes = get_post_types(array('show_in_rest' => true));
 
@@ -94,22 +205,24 @@ class Main {
         $this->debug = get_option($this->prefix . 'debug');
 
         // logged in cookie
-        add_action('wp_login', array($this, 'wp_login'), 1000000);
-        add_action('wp_logout', array($this, 'wp_logout'), 1000000);
+        // add_action('wp_login', array($this, 'wp_login'), 1000000);
+        // add_action('wp_logout', array($this, 'wp_logout'), 1000000);
 
         // register events to purge post
         foreach ($this->get_register_events() as $event) {
-            add_action($event, array($this, 'purge_post'), 10, 2);
+            add_action($event, array($this, 'addPost'), 10, 2);
         }
 
         // purge all cache from admin bar
         if ($this->check_if_purgeable()) {
             add_action('admin_bar_menu', array($this, 'purge_cache_from_adminbar'), 100);
+
             if (isset($_GET[$this->getParam]) && check_admin_referer($this->plugin)) {
+                $this->write_log('Init', 'AdminBar', 'Purge cache');
                 if ($this->optServersIP == null) {
                     add_action('admin_notices' , array($this, 'purge_message_no_ips'));
                 } else {
-                    $this->purge_cache();
+                    $this->purgeCache();
                 }
             }
         }
@@ -126,8 +239,9 @@ class Main {
             if (isset($_GET['action']) && isset($_GET['post_id']) && ($_GET['action'] == 'purge_remote_cache') && check_admin_referer($this->plugin)) {
                 $this->write_log('Init', 'Purging post', $_GET['post_id']);
                 
-                $this->purge_post($_GET['post_id']);
-                
+                $this->addPost($_GET['post_id']);
+                $this->purgeCache();
+
                 // TODO: Update this
                 $_SESSION['remote_cache_message'] = $this->noticeMessage;
                 $this->write_log('Init => ' . wp_get_referer());
@@ -149,6 +263,16 @@ class Main {
         $this->write_log('Init', 'End');
     }
 
+    
+    /**
+    * @since 1.0.1
+    */
+    public function addAll() {
+		$this->queue->addURL( home_url() . '/.*' );
+        
+		return $this;
+    }
+    
     /**
     * @since 1.0.1
     */
@@ -258,11 +382,14 @@ class Main {
         $admin_bar->add_menu(array(
             'id'    => 'purge-all-remote-cache',
             'title' => __('Purge Cache', $this->plugin),
-            'href'  => wp_nonce_url(add_query_arg($this->getParam, 1), $this->plugin),
+            'href'  => 'javascript:;', // wp_nonce_url(add_query_arg($this->getParam, 1), $this->plugin),
             'meta'  => array(
                 'title' => __('Purge Cache', $this->plugin),
             )
         ));
+
+        add_action( 'admin_footer', array( $this, 'embed_wp_nonce' ) );
+        add_action( 'admin_notices', array( $this, 'embed_admin_notices' ) );
     }
 
     /**
@@ -315,8 +442,10 @@ class Main {
     /**
     * @since 1.0
     */
-    public function purge_url($url)
+    public function purgeUrl($url)
     {
+        $this->write_log('Main', 'purgeUrl', 'Purging URL: ' . $url);
+        
         // is it root path => /
         $is_root = $url == '*' || untrailingslashit($url) == get_site_url();
 
@@ -325,36 +454,29 @@ class Main {
 
             foreach ($this->serverIPS as $server) {
                 $this->responses = [];
-                $this->purge_server($server, $urls_to_purge, false);
+                $this->purgeServer($server, $urls_to_purge, false);
             }
         } else {
             $postid = url_to_postid($url);
 
             if ($postid > 0) {
-                $this->purge_post($postid);
+                $this->addPost($postid);
             } else {
-                $urls_to_purge = [];
-                array_push($urls_to_purge, $url);
-
-                foreach ($this->serverIPS as $server) {
-                    $this->responses = [];
-                    $this->purge_server($server, $urls_to_purge);
+                $this->queue->addURL($url);
+                foreach ($this->serverIPS as $serverIP) {
+                    // $this->purgeServer($server, $purgeUrls);
+                    $this->queue->commitPurge($serverIP);
                 }
             }
         }
 
-        if ($this->truncateNotice && $this->truncateNoticeShown == false) {
-            $this->truncateNoticeShown = true;
-            $this->noticeMessage .= '<br />' . __('Truncate message activated. Showing only first 3 messages.', $this->plugin);
-        }
-
-        add_action('admin_notices' , array($this, 'purge_message'));
+        return true;
     }
 
     /**
     * @since 1.0
     */
-    public function purge_post($postId, $post=null)
+    public function addPost($postId, $post=null)
     {
         // Do not purge menu items
         if (get_post_type($post) == 'nav_menu_item' && $this->optPurgeOnMenuSave == false) {
@@ -377,6 +499,7 @@ class Main {
             $categories = get_the_category($postId);
             if ($categories) {
                 foreach ($categories as $cat) {
+                    $this->queue->addURL(get_category_link($cat->term_id));
                     array_push($listofurls, get_category_link($cat->term_id));
                 }
             }
@@ -384,11 +507,15 @@ class Main {
             $tags = get_the_tags($postId);
             if ($tags) {
                 foreach ($tags as $tag) {
+                    $this->queue->addURL(get_tag_link($tag->term_id));
                     array_push($listofurls, get_tag_link($tag->term_id));
                 }
             }
 
             // Author URL
+            $this->queue->addURL(get_author_posts_url(get_post_field('post_author', $postId)));
+            $this->queue->addURL(get_author_feed_link(get_post_field('post_author', $postId)));
+
             array_push($listofurls,
                 get_author_posts_url(get_post_field('post_author', $postId)),
                 get_author_feed_link(get_post_field('post_author', $postId))
@@ -397,6 +524,9 @@ class Main {
             // Archives and their feeds
             $archiveurls = array();
             if (get_post_type_archive_link(get_post_type($postId)) == true) {
+                $this->queue->addURL(get_post_type_archive_link( get_post_type($postId)));
+                $this->queue->addURL(get_post_type_archive_feed_link( get_post_type($postId)));
+
                 array_push($listofurls,
                     get_post_type_archive_link( get_post_type($postId)),
                     get_post_type_archive_feed_link( get_post_type($postId))
@@ -405,8 +535,16 @@ class Main {
 
             // Post URL
             array_push($listofurls, get_permalink($postId));
+            $this->queue->addURL(get_permalink($postId));
 
             // Feeds
+            $this->queue->addURL(get_bloginfo_rss('rdf_url'));
+            $this->queue->addURL(get_bloginfo_rss('rss_url'));
+            $this->queue->addURL(get_bloginfo_rss('rss2_url'));
+            $this->queue->addURL(get_bloginfo_rss('atom_url'));
+            $this->queue->addURL(get_bloginfo_rss('comments_rss2_url'));
+            $this->queue->addURL(get_post_comments_feed_link($postId));
+
             array_push($listofurls,
                 get_bloginfo_rss('rdf_url') ,
                 get_bloginfo_rss('rss_url') ,
@@ -419,174 +557,84 @@ class Main {
             // Home Page and (if used) posts page
             array_push($listofurls, home_url('/'));
             if (get_option('show_on_front') == 'page') {
+                $this->queue->addURL(get_permalink(get_option('page_for_posts')));
                 array_push($listofurls, get_permalink(get_option('page_for_posts')));
             }
 
             // If Automattic's AMP is installed, add AMP permalink
             if (function_exists('amp_get_permalink')) {
+                $this->queue->addURL(amp_get_permalink($postId));
                 array_push($listofurls, amp_get_permalink($postId));
             }
 
             // Now flush all the URLs we've collected
             foreach ($listofurls as $url) {
-                array_push($this->purgeUrls, $url) ;
+                $this->queue->addURL($url);
+                array_push($this->purgeUrls, $url);
             }
         }
-        $this->purgeUrls = apply_filters('rcpurger_purge_urls', $this->purgeUrls, $postId);
-        $this->purge_cache();
+        // $this->purgeUrls = apply_filters('rcpurger_purge_urls', $this->purgeUrls, $postId);
+        // $this->purgeCache();
     }
 
     /**
-    * @since 1.0
+     * Purge 
+     * @since 1.0
     */
-    public function purge_cache()
-    {
-        $purgeUrls = array_unique($this->purgeUrls);
+    // public function purgeCache()
+    // {
+    //     $purgeUrls = array_unique($this->purgeUrls);
 
-        if (empty($purgeUrls)) {
-            if (isset($_GET[$this->getParam]) && $this->check_if_purgeable() && check_admin_referer($this->plugin)) {
-                $this->purge_url(home_url());
-            }
-        } else {
+    //     if (empty($purgeUrls)) {
+    //         if (isset($_GET[$this->getParam]) && $this->check_if_purgeable() && check_admin_referer($this->plugin)) {
+    //             $this->purge_url(home_url());
+    //         }
+    //     } else {
             
-            $urls_to_purge = [];  
-            foreach($purgeUrls as $key => $url) {
-                array_push($urls_to_purge, $url);
-            }
+    //         $urls_to_purge = [];  
+    //         foreach($purgeUrls as $key => $url) {
+    //             array_push($urls_to_purge, $url);
+    //         }
 
-            foreach ($this->serverIPS as $server) {
-                $this->purge_server($server, $purgeUrls);
-            }
-        }
-        
-        if ($this->truncateNotice && $this->truncateNoticeShown == false) {
-            $this->truncateNoticeShown = true;
-            $this->noticeMessage .= '<br />' . __('Truncate message activated. Showing only first 3 messages.', $this->plugin);
-        }
-
-        add_action('admin_notices' , array($this, 'purge_message'));
-    }
+    //         foreach ($this->serverIPS as $serverIP) {
+    //             // $this->purgeServer($server, $purgeUrls);
+    //             $this->queue->commitPurge($serverIP);
+    //         }
+    //     }
+    // }
     
     /**
-    * @since 1.0
+     * Purge all pages
+     * @since 1.0.1
     */
-    public function purge_server($server_ip, $urls_to_purge, $parse = true)
+    public function purgeAll()
     {
-        // $responses = $this->responses;
-        $r = array();
-        $ip = trim($server_ip);
-        $mh = curl_multi_init(); // cURL multi-handle
-        $requests = array(); // This will hold cURLS requests for each file
-         $this->responses = [];
+        $this->queue->addURL( home_url() . '/.*' );
 
-        $options = array(
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_AUTOREFERER    => true, 
-            CURLOPT_USERAGENT      => $this->userAgent,
-            // CURLOPT_HEADER         => true,
-            // CURLOPT_NOBODY          => true,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 0,
-            CURLOPT_TIMEOUT => 10, //timeout in seconds
-            CURLOPT_VERBOSE => true
-        );
-        
-        foreach(array_unique($urls_to_purge) as $key => $url) {
-            
-            
-            if ($url == '*') {
-                $url = trailingslashit(get_site_url()) . '*'; // force url => *
-            }
-            
-            $parsedUrl = parse_url($url);
-            $path = isset($parsedUrl['path']) ? $parsedUrl['path'] : '';
-            $schema = $parsedUrl['scheme'];
-            $port = ( $parsedUrl['scheme'] == 'https' ? '443' : '80' );
-            $host = $parsedUrl['host'];
-
-            $fullUrl = $schema . '://' . $host . '/' . $this->optPurgePath . $path;
-            $pathedUrl = $this->optPurgePath . $url;
-
-            $handle = curl_init($pathedUrl);
-            $array_key = (int) $handle;
-            $requests[$array_key]['curl_handle'] = $handle;
-
-            $requests[$array_key]['url'] = $url;
-
-            $this->responses[$array_key] = array(
-                'url' => $url,
-                'ip' => $ip
-            );
-            
-            // Set cURL object options
-            curl_setopt_array($requests[$array_key]['curl_handle'], $options);
-            
-            if ($this->optUsePurgeMethod) {
-                curl_setopt($requests[$array_key]['curl_handle'], CURLOPT_CUSTOMREQUEST, "PURGE");
-            }
-
-            curl_setopt($requests[$array_key]['curl_handle'], CURLOPT_RESOLVE, array(
-                "{$host}:{$port}:{$ip}",
-            ));
-
-            curl_setopt($requests[$array_key]['curl_handle'], CURLOPT_HEADERFUNCTION, array($this, 'headerCallback'));
-
-            // Add cURL object to multi-handle
-            curl_multi_add_handle($mh, $requests[$array_key]['curl_handle']);
+        foreach ($this->serverIPS as $serverIP) {
+            $this->queue->commitPurge($serverIP);
         }
         
-        // Do while all request have been completed
-        do {
-            curl_multi_exec($mh, $running);
-        } while ($running);
-        
-        $this->noticeMessage .= '<br/>SERVER: ' . $ip . '<br/>';
-        
-        foreach ($requests as $key => $request) {
-            $this->responses[$key]['HTTP_CODE'] = curl_getinfo($request['curl_handle'], CURLINFO_HTTP_CODE);
-            curl_multi_remove_handle($mh, $request['curl_handle']); //assuming we're being responsible about our resource management
-        }
-        
-        curl_multi_close($mh);
-
-        foreach($this->responses as $key => $response) {
-            if(isset($response['headers']['x-purged-count'] )) {
-                $this->noticeMessage .= 'PURGE: (' . $response['headers']['x-purged-count'] . ')';
-            } else {
-                $this->noticeMessage .= 'PURGE (0)';
-            }
-
-            $this->noticeMessage .= ' | ' . $response['HTTP_CODE'] . ' | ' .  $response['url'];
-
-            $this->noticeMessage .= '<br/>';
-        }
+        return true;
     }
 
     /**
-    * @since 1.0
+     * Purge one post/page
+     * 
+     * @since 1.0.1
     */
-    private function headerCallback($ch, $header)
+    public function purgeItem($postID)
     {
-        $_header = trim($header);
-        $colonPos= strpos($_header, ':');
-        if($colonPos > 0)
-        {
-            $key = substr($_header, 0, $colonPos);
-            $val = preg_replace('/^\W+/','',substr($_header, $colonPos));
-            $this->responses[$this->getKey($ch)]['headers'][$key] = $val;
+        $this->addPost($postID);
+
+        foreach ($this->serverIPS as $serverIP) {
+            // $this->purgeServer($server, $purgeUrls);
+            $this->queue->commitPurge($serverIP);
         }
-        return strlen($header);
+
+        return true;
     }
     
-    /**
-    * @since 1.0
-    */
-    public function getKey($ch)
-    {
-        return (int)$ch;
-    }
-
     /**
     * @since 1.0
     */
@@ -636,7 +684,6 @@ class Main {
                 <?php
                     settings_fields($this->prefix . 'console');
                     do_settings_sections($this->prefix . 'console');
-                    submit_button(__('Purge', $this->plugin));
                 ?>
             </form>
         <?php endif; ?>
@@ -796,6 +843,7 @@ class Main {
     {
         ?>
             <input type="text" name="remote_cache_purge_url" size="100" id="remote_cache_purge_url" value="" />
+            <a href="javascript:;" id="remote-cache-purger-purge-link">Purge</a>
             <p class="description"><?=__('Relative URL to purge. Example : /simple-post or /uncategorized/hello-world. It will clear that URL page (and related pages) cache on ALL reported servers', $this->plugin)?></p>
         <?php
     }
@@ -808,7 +856,7 @@ class Main {
     {
         if ($this->check_if_purgeable()) {
             $actions = array_merge($actions, array(
-                'rcpurger_purge_post' => sprintf('<a href="%s">' . __('Purge cache', $this->plugin) . '</a>', wp_nonce_url(sprintf('admin.php?action=purge_remote_cache&post_id=%d', $post->ID), $this->plugin))
+                'rcpurger_purge_post' => sprintf('<a href="%s" data-item-id=' . $post->ID . '>' . __('Purge cache', $this->plugin) . '</a>', sprintf('javascript:;'), $this->plugin)
             ));
         }
         return $actions;
@@ -821,19 +869,12 @@ class Main {
     {
         if ($this->check_if_purgeable()) {
             $actions = array_merge($actions, array(
-                'rcpurger_purge_post' => sprintf('<a href="%s">' . __('Purge cache', $this->plugin) . '</a>', wp_nonce_url(sprintf('admin.php?action=purge_remote_cache&post_id=%d', $post->ID), $this->plugin))
+                'rcpurger_purge_post' => sprintf('<a href="%s" data-item-id=' . $post->ID . '>' . __('Purge cache', $this->plugin) . '</a>', sprintf('javascript:;'), $this->plugin)
             ));
         }
         return $actions;
     }
-
-    /**
-    * @since 1.0
-    */
-    public function get_user_agent()
-    {
-        return $this->$userAgent . $this->$version;
-    }
+    
     /**
     * @since 1.0.1
     */
@@ -846,9 +887,26 @@ class Main {
             }
         }
     }
+        
+    /**
+    * @since 1.0.1
+    */
+    public function embed_wp_nonce() {
+		echo '<span id="' . self::NAME . '-purge-wp-nonce' . '" class="hidden">'
+		     . wp_create_nonce( self::NAME . '-purge-wp-nonce' )
+		     . '</span>';
+    }
+    
+    /**
+    * @since 1.0.1
+    */
+    public function embed_admin_notices() {
+		echo '<div id="' . self::NAME . '-admin-notices' . '" class="hidden notice"></div>';
+	}
 }
 
-$rcpurger = new \RemoteCachePurger\Main();
+\RemoteCachePurger\Main::getInstance();
+// $rcpurger = new \RemoteCachePurger\Main;
 
 // WP-CLI
 if (defined('WP_CLI') && WP_CLI) {
