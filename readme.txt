@@ -50,15 +50,6 @@ Yes and you can do it in multiple ways.
 1. Click the Purge ALL Remote Cache in Top Bar
 2. On Remote Caching Settings page, Console tab. Enter / or * and whole site cache will be purged
 
-
-= Privacy Policy =
-
-<em>No visitor information from your site is tracked.</em>
-
-== Upgrade Notice ==
-
-There is no need to upgrade just yet.
-
 == Screenshots ==
 
 There are no screenshots yet.

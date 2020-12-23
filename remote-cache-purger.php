@@ -1,37 +1,34 @@
 <?php
 /**
- 	* Plugin Name: Remote Cache Purger
-	* Description: Clearing cache on remote NGINX server (Kubernetes)
-	* Author: Myros
-	* Author URI: https://www.myros.net/
-	* Version: 1.0.0
-
-	* License: http://www.apache.org/licenses/LICENSE-2.0
-    * Text Domain: remote-cache-purger
-    * Network: true
-    *
-    * @package remote-cache-purger
-    *
-    * Copyright 2020 Myros (email: myros@gmail.com)
-    *
-    * This file is part of Remote Cache Purger, a plugin for WordPress.
-    *
-    * Remote Cache Purger is free software: you can redistribute it and/or modify
-    * it under the terms of the Apache License 2.0 license.
-    *
-    * Remote Cache Purger is distributed in the hope that it will be useful,
-    * but WITHOUT ANY WARRANTY; without even the implied warranty of
+     * Plugin Name: Remote Cache Purger
+     * Description: Clearing cache on remote NGINX server (Kubernetes)
+     * Author: Myros
+     * Author URI: https://www.myros.net/
+     * Version: 1.0.0
+     
+     * License: http://www.apache.org/licenses/LICENSE-2.0
+     * Text Domain: remote-cache-purger
+     * Network: true
+     *
+     * @package remote-cache-purger
+     *
+     * Copyright 2020 Myros (email: myros@gmail.com)
+     *
+     * This file is part of Remote Cache Purger, a plugin for WordPress.
+     *
+     * Remote Cache Purger is free software: you can redistribute it and/or modify
+     * it under the terms of the Apache License 2.0 license.
+     *
+     * Remote Cache Purger is distributed in the hope that it will be useful,
+     * but WITHOUT ANY WARRANTY; without even the implied warranty of
+     * 
      * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
      * 
-     * TODO:
-     * multiple domains
-     * cache purge key
-     * dynamic response header for cleared items count
-     * purge on save (option)
-     * debug
 */
 
-class RCPurger {
+namespace RemoteCachePurger;
+
+class Main {
 
     // general
     protected $version = '1.0.0';
@@ -41,7 +38,7 @@ class RCPurger {
     protected $prefix = 'remote_cache_'; // remote cache purger
 
     protected $purgeUrls = array();
-    protected $ipsToHosts = array();
+    protected $serverIPS = array();
     protected $getParam = 'purge_remote_cache';
     protected $postTypes = array('page', 'post');
     protected $responses = array();
@@ -60,6 +57,8 @@ class RCPurger {
     // protected $optDomains = null;
     // protected $optPurgeOnMenuSave = false;
     // protected $purgeKey = null;
+    protected $usePurgeMethod = true;
+    protected $purgePath = '';
     // protected $responseHeader = null;
 
     /**
@@ -82,10 +81,10 @@ class RCPurger {
     */
     public function init()
     {
+        $this->write_log('Init', 'Start');
         $this->postTypes = get_post_types(array('show_in_rest' => true));
 
-        $this->setup_ips_to_hosts();
-        // $this->purgeKey = ($purgeKey = trim(get_option($this->prefix . 'purge_key'))) ? $purgeKey : null;
+        $this->loadOptions();
         $this->admin_menu();
 
         add_action('wp', array($this, 'buffer_start'), 1000000);
@@ -93,6 +92,10 @@ class RCPurger {
 
         $this->truncateNotice = get_option($this->prefix . 'truncate_notice');
         $this->debug = get_option($this->prefix . 'debug');
+
+        // logged in cookie
+        add_action('wp_login', array($this, 'wp_login'), 1000000);
+        add_action('wp_logout', array($this, 'wp_logout'), 1000000);
 
         // register events to purge post
         foreach ($this->get_register_events() as $event) {
@@ -113,33 +116,56 @@ class RCPurger {
 
         // purge post/page cache from post/page actions
         if ($this->check_if_purgeable()) {
-            add_filter('post_row_actions', array(
-                &$this,
-                'post_row_actions'
-            ), 0, 2);
-            add_filter('page_row_actions', array(
-                &$this,
-                'page_row_actions'
-            ), 0, 2);
-            if (isset($_GET['action']) && isset($_GET['post_id']) && ($_GET['action'] == 'purge_post' || $_GET['action'] == 'purge_page') && check_admin_referer($this->plugin)) {
-                $this->purge_post($_GET['post_id']);
-                $_SESSION['rcpurger_note'] = $this->noticeMessage;
-                $referer = str_replace('purge_remote_cache=1', '', wp_get_referer());
-                wp_redirect($referer . (strpos($referer, '?') ? '&' : '?') . 'rcpurger_note=' . $_GET['action']);
+            if(!session_id()) {
+                session_start();
             }
-            if (isset($_GET['rcpurger_note']) && ($_GET['rcpurger_note'] == 'purge_post' || $_GET['rcpurger_note'] == 'purge_page')) {
+
+            add_filter('post_row_actions', array(&$this, 'post_row_actions'), 0, 2);
+            add_filter('page_row_actions', array(&$this, 'page_row_actions'), 0, 2);
+
+            if (isset($_GET['action']) && isset($_GET['post_id']) && ($_GET['action'] == 'purge_remote_cache') && check_admin_referer($this->plugin)) {
+                $this->write_log('Init', 'Purging post', $_GET['post_id']);
+                
+                $this->purge_post($_GET['post_id']);
+                
+                // TODO: Update this
+                $_SESSION['remote_cache_message'] = $this->noticeMessage;
+                $this->write_log('Init => ' . wp_get_referer());
+                $referer = str_replace('purge_remote_cache=1', '', wp_get_referer());
+                wp_redirect($referer . (strpos($referer, '?') ? '&' : '?'));
+            }
+            if (isset($_SESSION['remote_cache_message'])) {
                 add_action('admin_notices' , array($this, 'purge_post_page'));
             }
         }
 
         // console purge
         if ($this->check_if_purgeable() && isset($_POST['remote_cache_purge_url'])) {
+            $this->write_log('Init', 'ConsolePurge');
             $this->purge_url(home_url() . $_POST['remote_cache_purge_url']);
             add_action('admin_notices' , array($this, 'purge_message'));
         }
         $this->currentTab = isset($_GET['tab']) ? $_GET['tab'] : 'settings';
+        $this->write_log('Init', 'End');
     }
 
+    public function wp_login()
+    {
+        $cookie = get_option($this->prefix . 'cookie');
+        if (!empty($cookie)) {
+            setcookie($cookie, 1, time()+3600*24*100, COOKIEPATH, COOKIE_DOMAIN, false, true);
+        }
+    }
+
+    public function wp_logout()
+    {
+        $cookie = get_option($this->prefix . 'cookie');
+        if (!empty($cookie)) {
+            setcookie($cookie, null, time()-3600*24*100, COOKIEPATH, COOKIE_DOMAIN, false, true);
+        }
+    }
+
+    
     /**
     * @since 1.0
     */
@@ -169,15 +195,16 @@ class RCPurger {
     /**
     * @since 1.0
     */
-    protected function setup_ips_to_hosts()
+    protected function loadOptions()
     {
         $this->optServersIP = get_option($this->prefix . 'ips');
         $this->optDomains = get_option($this->prefix . 'domains');
-        $this->optPurgeOnMenuSave = get_option($this->prefix . 'purge_menu_save');
+        $this->optUsePurgeMethod = get_option($this->prefix . 'use_purge_method');
+        $this->optPurgePath = get_option($this->prefix . 'purge_path');
 
         $serverIPS = explode(',', $this->optServersIP);
         foreach ($serverIPS as $key => $ip) {
-            $this->ipsToHosts[] = trim($ip);
+            $this->serverIPS[] = trim($ip);
         }
     }
 
@@ -194,7 +221,8 @@ class RCPurger {
     */
     public function purge_message()
     {
-        echo '<div id="message" class="updated fade"><p><strong>' . __('Remote Caching', $this->plugin) . '</strong><br /><br />' . $this->noticeMessage . '</p></div>';
+        $this->write_log('Init', 'PurgeMessage');
+        echo '<div id="message" class="updated fade"><p><strong>' . __('Remote Cache Purger', $this->plugin) . '</strong><br /><br />' . $this->noticeMessage . '</p></div>';
     }
 
     /**
@@ -210,9 +238,10 @@ class RCPurger {
     */
     public function purge_post_page()
     {
-        if (isset($_SESSION['rcpurger_note'])) {
-            echo '<div id="message" class="updated fade"><p><strong>' . __('Remote Caching', $this->plugin) . '</strong><br /><br />' . $_SESSION['rcpurger_note'] . '</p></div>';
-            unset ($_SESSION['rcpurger_note']);
+        // $this->write_log('PurgePostPage', 'Print message', ($_SESSION['remote_cache_note']));
+        if (isset($_SESSION['remote_cache_message'])) {
+            echo '<div id="message" class="updated fade"><p><strong>' . __('Remote Cache Purger', $this->plugin) . '</strong><br /><br />' . $_SESSION['remote_cache_message'] . '</p></div>';
+            unset ($_SESSION['remote_cache_message']);
         }
     }
 
@@ -289,7 +318,7 @@ class RCPurger {
         if ($is_root){
             $urls_to_purge = array('*');
 
-            foreach ($this->ipsToHosts as $server) {
+            foreach ($this->serverIPS as $server) {
                 $this->responses = [];
                 $this->purge_server($server, $urls_to_purge, false);
             }
@@ -302,7 +331,7 @@ class RCPurger {
                 $urls_to_purge = [];
                 array_push($urls_to_purge, $url);
 
-                foreach ($this->ipsToHosts as $server) {
+                foreach ($this->serverIPS as $server) {
                     $this->responses = [];
                     $this->purge_server($server, $urls_to_purge);
                 }
@@ -420,7 +449,7 @@ class RCPurger {
                 array_push($urls_to_purge, $url);
             }
 
-            foreach ($this->ipsToHosts as $server) {
+            foreach ($this->serverIPS as $server) {
                 $this->purge_server($server, $purgeUrls);
             }
         }
@@ -453,13 +482,13 @@ class RCPurger {
             // CURLOPT_NOBODY          => true,
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CUSTOMREQUEST => "PURGE",
             CURLOPT_CONNECTTIMEOUT => 0,
             CURLOPT_TIMEOUT => 10, //timeout in seconds
             CURLOPT_VERBOSE => true
         );
         
         foreach(array_unique($urls_to_purge) as $key => $url) {
+            
             
             if ($url == '*') {
                 $url = trailingslashit(get_site_url()) . '*'; // force url => *
@@ -470,10 +499,11 @@ class RCPurger {
             $schema = $parsedUrl['scheme'];
             $port = ( $parsedUrl['scheme'] == 'https' ? '443' : '80' );
             $host = $parsedUrl['host'];
-            
-            $fullUrl = $schema . '://' . $host . '/' . $path;
-            
-            $handle = curl_init($url);
+
+            $fullUrl = $schema . '://' . $host . '/' . $this->optPurgePath . $path;
+            $pathedUrl = $this->optPurgePath . $url;
+
+            $handle = curl_init($pathedUrl);
             $array_key = (int) $handle;
             $requests[$array_key]['curl_handle'] = $handle;
 
@@ -486,9 +516,15 @@ class RCPurger {
             
             // Set cURL object options
             curl_setopt_array($requests[$array_key]['curl_handle'], $options);
+            
+            if ($this->optUsePurgeMethod) {
+                curl_setopt($requests[$array_key]['curl_handle'], CURLOPT_CUSTOMREQUEST, "PURGE");
+            }
+
             curl_setopt($requests[$array_key]['curl_handle'], CURLOPT_RESOLVE, array(
                 "{$host}:{$port}:{$ip}",
             ));
+
             curl_setopt($requests[$array_key]['curl_handle'], CURLOPT_HEADERFUNCTION, array($this, 'headerCallback'));
 
             // Add cURL object to multi-handle
@@ -513,7 +549,7 @@ class RCPurger {
             if(isset($response['headers']['x-purged-count'] )) {
                 $this->noticeMessage .= 'PURGE: (' . $response['headers']['x-purged-count'] . ')';
             } else {
-                $this->noticeMessage .= 'PURGE (0)' ;
+                $this->noticeMessage .= 'PURGE (0)';
             }
 
             $this->noticeMessage .= ' | ' . $response['HTTP_CODE'] . ' | ' .  $response['url'];
@@ -562,7 +598,7 @@ class RCPurger {
     public function add_menu_item()
     {
         if ($this->check_if_purgeable()) {
-            add_menu_page(__('Remote Caching', $this->plugin), __('Remote Caching', $this->plugin), 'manage_options', $this->plugin . '-plugin', array($this, 'settings_page'), 'dashicons-sos', 99);
+            add_menu_page(__('Remote Cache Purger', $this->plugin), __('Remote Cache Purger', $this->plugin), 'manage_options', $this->plugin . '-plugin', array($this, 'settings_page'), 'dashicons-sos', 99);
         }
     }
 
@@ -573,7 +609,7 @@ class RCPurger {
     {
     ?>
         <div class="wrap">
-        <h1><?=__('Remote Caching', $this->plugin)?></h1>
+        <h1><?=__('Remote Cache Purger', $this->plugin)?></h1>
 
         <h2 class="nav-tab-wrapper">
             <a class="nav-tab <?php if($this->currentTab == 'settings'): ?>nav-tab-active<?php endif; ?>" href="<?php echo admin_url() ?>index.php?page=<?=$this->plugin?>-plugin&amp;tab=settings"><?=__('Settings', $this->plugin)?></a>
@@ -590,18 +626,6 @@ class RCPurger {
                     submit_button();
                 ?>
             </form>
-            <script type="text/javascript">
-                function generateHash(length, bits, id) {
-                    bits = bits || 36;
-                    var outStr = "", newStr;
-                    while (outStr.length < length)
-                    {
-                        newStr = Math.random().toString(bits).slice(2);
-                        outStr += newStr.slice(0, Math.min(newStr.length, (length - outStr.length)));
-                    }
-                    jQuery('#' + id).val(outStr);
-                }
-            </script>
         <?php elseif($this->currentTab == 'console'): ?>
             <form method="post" action="admin.php?page=<?=$this->plugin?>-plugin&amp;tab=console">
                 <?php
@@ -624,19 +648,26 @@ class RCPurger {
 
         // add_settings_field($this->prefix . "enabled", __("Enable" , $this->plugin), array($this, $this->prefix . "enabled"), $this->prefix . 'settings', $this->prefix . 'settings');
         add_settings_field($this->prefix . "ips", __("IPs", $this->plugin), array($this, $this->prefix . "ips"), $this->prefix . 'settings', $this->prefix . 'settings');
+        // add_settings_field($this->prefix . "dynamic_hosts", __("Additional domains", $this->plugin), array($this, $this->prefix . "ips"), $this->prefix . 'settings', $this->prefix . 'settings');
         // add_settings_field($this->prefix . "purge_key", __("Purge key", $this->plugin), array($this, $this->prefix . "purge_key"), $this->prefix . 'settings', $this->prefix . 'settings');
         add_settings_field($this->prefix . "truncate_notice", __("Truncate notice message", $this->plugin), array($this, $this->prefix . "truncate_notice"), $this->prefix . 'settings', $this->prefix . 'settings');
-        // add_settings_field($this->prefix . "purge_menu_save", __("Purge on save menu", $this->plugin), array($this, $this->prefix . "purge_menu_save"), $this->prefix . 'settings', $this->prefix . 'settings');
+        add_settings_field($this->prefix . "use_purge_method", __("Use PURGE method", $this->plugin), array($this, $this->prefix . "use_purge_method"), $this->prefix . 'settings', $this->prefix . 'settings');
         // add_settings_field($this->prefix . "debug", __("Enable debug", $this->plugin), array($this, $this->prefix . "debug"), $this->prefix . 'settings', $this->prefix . 'settings');
+        add_settings_field($this->prefix . "purge_path", __("PURGE path", $this->plugin), array($this, $this->prefix . "purge_path"), $this->prefix . 'settings', $this->prefix . 'settings');
+
+        // add_settings_section($this->prefix . 'settings_use_purge', __('Purge Settings', $this->plugin), null, $this->prefix . 'settings');
 
         if(isset($_POST['option_page']) && $_POST['option_page'] == $this->prefix . 'settings') {
-            register_setting($this->prefix . 'settings', $this->prefix . "enabled");
+            // register_setting($this->prefix . 'settings', $this->prefix . "enabled");
             register_setting($this->prefix . 'settings', $this->prefix . "ips");
-            register_setting($this->prefix . 'settings', $this->prefix . "purge_key");
+            // register_setting($this->prefix . 'settings', $this->prefix . "purge_key");
             register_setting($this->prefix . 'settings', $this->prefix . "truncate_notice");
-            register_setting($this->prefix . 'settings', $this->prefix . "purge_menu_save");
-            register_setting($this->prefix . 'settings', $this->prefix . "debug");
+            register_setting($this->prefix . 'settings', $this->prefix . "use_purge_method", true);
+            register_setting($this->prefix . 'settings', $this->prefix . "purge_path");
+            // register_setting($this->prefix . 'settings', $this->prefix . "dynamic_hosts");
+            // register_setting($this->prefix . 'settings', $this->prefix . "debug");
         }
+
     }
 
     /**
@@ -657,14 +688,14 @@ class RCPurger {
     {
         ?>
             <input type="text" name="remote_cache_ips" id="remote_cache_ips" size="100" value="<?php echo get_option($this->prefix . 'ips'); ?>" />
-            <p class="description"><?=__('Comma separated ip/ip:port. Example : 192.168.0.2,192.168.0.3:8080', $this->plugin)?></p>
+            <p class="description"><?=__('Comma separated ip/ip:port. Example: 192.168.0.2,192.168.0.3:8080', $this->plugin)?></p>
         <?php
     }
 
     /**
     * @since 1.0
     */
-    public function remote_cache_dynamic_host()
+    public function remote_cache_dynamic_hosts()
     {
         ?>
             <input type="checkbox" name="remote_cache_dynamic_hosts" value="1" <?php checked(1, get_option($this->prefix . 'dynamic_hosts'), true); ?> />
@@ -675,16 +706,32 @@ class RCPurger {
     }
 
     /**
-    * @since 1.0
+    * @since 1.0.1
     */
-    public function remote_cache_purge_key()
+    public function remote_cache_use_purge_method()
     {
         ?>
-            <input type="text" name="remote_cache_purge_key" id="remote_cache_purge_key" size="100" maxlength="64" value="<?php echo get_option($this->prefix . 'purge_key'); ?>" />
-            <span onclick="generateHash(64, 0, 'remote_cache_purge_key'); return false;" class="dashicons dashicons-image-rotate" title="<?=__('Generate')?>"></span>
+            <input type="checkbox" name="remote_cache_use_purge_method" value="1" <?php checked(1, get_option($this->prefix . 'use_purge_method'), true); ?> />
             <p class="description">
-                <?=__('Key used to purge remote cache. It is sent to Remote Cache Servers as X-VC-Purge-Key header. Use a SHA-256 hash.<br />If you can\'t use ACL\'s, use this option. You can set the `purge key` in lib/purge.vcl.<br />Search the default value ff93c3cb929cee86901c7eefc8088e9511c005492c6502a930360c02221cf8f4 to find where to replace it.', $this->plugin)?>
+                <?=__('Use PURGE http method or /purge(/.*) path', $this->plugin)?>
             </p>
+
+            <script type="text/javascript">
+                function togglePurge() {
+                    jQuery('#' + id).val(outStr);
+                }
+            </script>
+        <?php
+    }
+
+    /**
+    * @since 1.0.1
+    */
+    public function remote_cache_purge_path()
+    {
+        ?>
+            <input type="text" name="remote_cache_purge_path" id="remote_cache_purge_path" size="100" value="<?php echo get_option($this->prefix . 'purge_path'); ?>" />
+            <p class="description"><?=__('If your\'re using purge path enter your path here, based on your server configuration, Example: /purge', $this->plugin)?></p>
         <?php
     }
 
@@ -756,7 +803,7 @@ class RCPurger {
     {
         if ($this->check_if_purgeable()) {
             $actions = array_merge($actions, array(
-                'rcpurger_purge_post' => sprintf('<a href="%s">' . __('Refresh cache', $this->plugin) . '</a>', wp_nonce_url(sprintf('admin.php?page=rcpurger-plugin&tab=settings&action=purge_post&post_id=%d', $post->ID), $this->plugin))
+                'rcpurger_purge_post' => sprintf('<a href="%s">' . __('Purge cache', $this->plugin) . '</a>', wp_nonce_url(sprintf('admin.php?action=purge_remote_cache&post_id=%d', $post->ID), $this->plugin))
             ));
         }
         return $actions;
@@ -769,7 +816,7 @@ class RCPurger {
     {
         if ($this->check_if_purgeable()) {
             $actions = array_merge($actions, array(
-                'rcpurger_purge_page' => sprintf('<a href="%s">' . __('Refresh cache', $this->plugin) . '</a>', wp_nonce_url(sprintf('admin.php?page=rcpurger-plugin&tab=settings&action=purge_page&post_id=%d', $post->ID), $this->plugin))
+                'rcpurger_purge_post' => sprintf('<a href="%s">' . __('Purge cache', $this->plugin) . '</a>', wp_nonce_url(sprintf('admin.php?action=purge_remote_cache&post_id=%d', $post->ID), $this->plugin))
             ));
         }
         return $actions;
@@ -782,9 +829,21 @@ class RCPurger {
     {
         return $this->$userAgent . $this->$version;
     }
+    /**
+    * @since 1.0.1
+    */
+    public function write_log($method, $part = '', $message = '') {
+        if (true === WP_DEBUG) {
+            if (is_array($method) || is_object($method)) {
+                error_log(print_r($method . '::' . $part . ' => ' . $message, true));
+            } else {
+                error_log($method . '::' . $part . ' => ' . $message);
+            }
+        }
+    }
 }
 
-$rcpurger = new RCPurger();
+$rcpurger = new \RemoteCachePurger\Main();
 
 // WP-CLI
 if (defined('WP_CLI') && WP_CLI) {

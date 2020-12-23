@@ -1,11 +1,13 @@
 <?php
 
+namespace RemoteCachePurger\Tools;
+
 /**
- * Purge Class
+ * Tools Class
  *
  * @since 1.0
  */
-class RCTools {
+class Tools {
 	/**
 	 * 
 	 * @since 1.0
@@ -75,6 +77,6 @@ class RCTools {
 
 }
 
-$rcp_tools = new RCTools();
+$rcp_tools = new \RemoteCachePurger\Tools();
 
 
