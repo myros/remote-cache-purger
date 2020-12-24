@@ -8,3 +8,5 @@
 * debug
 * treat purge url as post (use relative urls)
 * vuejs?
+* update documentation
+* add screenshots
