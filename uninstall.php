@@ -15,3 +15,4 @@ delete_site_option( 'remote_cache_truncate_notice' );
 delete_site_option( 'remote_cache_purge_menu_save' );
 delete_site_option( 'remote_cache_debug' );
 delete_site_option( 'remote_cache_purge_path' );
+delete_site_option( 'remote_cache_additional_domains' );

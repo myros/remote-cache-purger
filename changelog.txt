@@ -1,13 +1,22 @@
 ## CHANGELOG
 
+
+= 1.0.3 - 2020/12 =
+
+  * truncate admin notice
+  * additional domains
+  * enable/disable purge
+
 = 1.0.2 - 2020/12 =
+
+  * Debug
 
 = 1.0.1 - 2020/12 =
 
-* Cleaning Up
-* Added Ajax requests
-* Added logging to Wordpress error log
+  * Cleaning Up
+  * Added Ajax requests
+  * Added logging to Wordpress error log
 
 = 1.0.0 - 2020/12 =
 
-* Init
+  * Init

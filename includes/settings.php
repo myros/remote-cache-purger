@@ -22,6 +22,7 @@ class Settings {
   */
   public function __construct() {
     $this->main = Main::getInstance();
+
     $this->plugin = $this->main->plugin;
     $this->prefix = $this->main->prefix;
 
@@ -124,30 +125,58 @@ class Settings {
     {
         add_settings_section($this->prefix . 'settings', __('Settings', $this->plugin), null, $this->prefix . 'settings');
 
-        // add_settings_field($this->prefix . "enabled", __("Enable" , $this->plugin), array($this, $this->prefix . "enabled"), $this->prefix . 'settings', $this->prefix . 'settings');
+        add_settings_field($this->prefix . "enabled", __("Enable" , $this->plugin), array($this, $this->prefix . "enabled"), $this->prefix . 'settings', $this->prefix . 'settings');
         add_settings_field($this->prefix . "ips", __("Servers IPs", $this->plugin), array($this, $this->prefix . "ips"), $this->prefix . 'settings', $this->prefix . 'settings');
-        // add_settings_field($this->prefix . "additional_domains", __("Additional domains", $this->plugin), array($this, $this->prefix . "ips"), $this->prefix . 'settings', $this->prefix . 'settings');
+        add_settings_field($this->prefix . "additional_domains", __("Additional domains", $this->plugin), array($this, $this->prefix . "additional_domains"), $this->prefix . 'settings', $this->prefix . 'settings');
+        add_settings_field($this->prefix . "response_count_header", __("Response Count Header", $this->plugin), array($this, $this->prefix . "response_count_header"), $this->prefix . 'settings', $this->prefix . 'settings');
         // add_settings_field($this->prefix . "purge_key", __("Purge key", $this->plugin), array($this, $this->prefix . "purge_key"), $this->prefix . 'settings', $this->prefix . 'settings');
-        // add_settings_field($this->prefix . "truncate_notice", __("Truncate notice message", $this->plugin), array($this, $this->prefix . "truncate_notice"), $this->prefix . 'settings', $this->prefix . 'settings');
+        add_settings_field($this->prefix . "truncate_notice", __("Truncate notice", $this->plugin), array($this, $this->prefix . "truncate_notice"), $this->prefix . 'settings', $this->prefix . 'settings');
         add_settings_field($this->prefix . "use_purge_method", __("Use PURGE HTTP method", $this->plugin), array($this, $this->prefix . "use_purge_method"), $this->prefix . 'settings', $this->prefix . 'settings');
-        add_settings_field($this->prefix . "debug", __("Enable debug", $this->plugin), array($this, $this->prefix . "debug"), $this->prefix . 'settings', $this->prefix . 'settings');
         add_settings_field($this->prefix . "purge_path", __("PURGE path", $this->plugin), array($this, $this->prefix . "purge_path"), $this->prefix . 'settings', $this->prefix . 'settings');
+        add_settings_field($this->prefix . "debug", __("Enable debug", $this->plugin), array($this, $this->prefix . "debug"), $this->prefix . 'settings', $this->prefix . 'settings');
 
         // add_settings_section($this->prefix . 'settings_use_purge', __('Purge Settings', $this->plugin), null, $this->prefix . 'settings');
 
         if(isset($_POST['option_page']) && $_POST['option_page'] == $this->prefix . 'settings') {
-            // register_setting($this->prefix . 'settings', $this->prefix . "enabled");
+            register_setting($this->prefix . 'settings', $this->prefix . "enabled");
             register_setting($this->prefix . 'settings', $this->prefix . "ips");
             // register_setting($this->prefix . 'settings', $this->prefix . "purge_key");
-            // register_setting($this->prefix . 'settings', $this->prefix . "truncate_notice");
+            register_setting($this->prefix . 'settings', $this->prefix . "truncate_notice");
             register_setting($this->prefix . 'settings', $this->prefix . "use_purge_method", true);
             register_setting($this->prefix . 'settings', $this->prefix . "purge_path");
-            // register_setting($this->prefix . 'settings', $this->prefix . "additional_domains");
+            register_setting($this->prefix . 'settings', $this->prefix . "additional_domains");
+            register_setting($this->prefix . 'settings', $this->prefix . "response_count_header");
             register_setting($this->prefix . 'settings', $this->prefix . "debug");
         }
 
     }
     
+    /**
+    * @since 1.0
+    */
+    public function remote_cache_enabled()
+    {
+        ?>
+        <label for="remote_cache_enabled">
+            <input name="remote_cache_enabled" type="checkbox" id="remote_cache_enabled" value="1" <?php checked(1, get_option($this->prefix . 'enabled'), true); ?> />
+	        <?=__('Enable Remote Cache Purge', $this->plugin)?>
+        </label>
+        <?php
+    }
+
+    /**
+    * @since 1.0
+    */
+    public function remote_cache_purge_menu_save()
+    {
+        ?>
+            <input type="checkbox" name="remote_cache_purge_menu_save" value="1" <?php checked(1, get_option($this->prefix . 'purge_menu_save'), true); ?> />
+            <p class="description">
+                <?=__('Purge menu related pages when a menu is saved.', $this->plugin)?>
+            </p>
+        <?php
+    }
+
     /**
     * @since 1.0
     */
@@ -160,15 +189,37 @@ class Settings {
     }
 
     /**
+    * @since 1.0.2
+    */
+    public function remote_cache_additional_domains()
+    {
+        ?>
+            <input type="text" name="remote_cache_additional_domains" id="remote_cache_additional_domains" size="100" value="<?php echo get_option($this->prefix . 'additional_domains'); ?>" />
+            <p class="description"><?=__('BETA!!! Other domains which use this blog. They will be added to purge. Comma separated, Example: www.example.com, example.co', $this->plugin)?></p>
+        <?php
+    }
+
+    /**
+    * @since 1.0.3
+    */
+    public function remote_cache_response_count_header()
+    {
+        ?>
+            <input type="text" name="remote_cache_response_count_header" id="remote_cache_response_count_header" size="50" value="<?php echo get_option($this->prefix . 'response_count_header'); ?>" />
+            <p class="description"><?=__('BETA!!! Response header that holds number of purged items. Example: X-PURGED-COUNT', $this->plugin)?></p>
+        <?php
+    }
+
+    /**
     * @since 1.0
     */
     public function remote_cache_debug()
     {
         ?>
-            <input type="checkbox" name="remote_cache_debug" value="1" <?php checked(1, get_option($this->prefix . 'debug'), true); ?> />
-            <p class="description">
-                <?=__('Send logging data to WP debug.log.', $this->plugin)?>
-            </p>
+        <label for="remote_cache_debug">
+            <input name="remote_cache_debug" type="checkbox" id="remote_cache_debug" value="1" <?php checked(1, get_option($this->prefix . 'debug'), true); ?> />
+	        <?=__('Send logging data to WP debug.log.', $this->plugin)?>
+        </label>
         <?php
     }
 
@@ -179,10 +230,12 @@ class Settings {
     public function remote_cache_use_purge_method()
     {
         ?>
-            <input type="checkbox" name="remote_cache_use_purge_method" value="1" <?php checked(1, get_option($this->prefix . 'use_purge_method'), true); ?> />
-            <p class="description">
-                <?=__('Use PURGE http method or /purge(/.*) path', $this->plugin)?>
-            </p>
+        <label for="remote_cache_use_purge_method">
+            <input name="remote_cache_use_purge_method" type="checkbox" id="remote_cache_use_purge_method" value="1" <?php checked(1, get_option($this->prefix . 'use_purge_method'), true); ?> />
+	        <?=__('Use PURGE http method', $this->plugin)?>
+        </label>
+        <p class="description"><?=__('Requests will be send using -X PURGE method. If not checked, GET method and definfed purge path will be used. Choose right value based on your server config', $this->plugin)?></p>
+
         <?php
     }
 
@@ -192,8 +245,21 @@ class Settings {
     public function remote_cache_purge_path()
     {
         ?>
-            <input type="text" name="remote_cache_purge_path" id="remote_cache_purge_path" size="100" value="<?php echo get_option($this->prefix . 'purge_path'); ?>" />
+            <input type="text" name="remote_cache_purge_path" id="remote_cache_purge_path" size="50" value="<?php echo get_option($this->prefix . 'purge_path'); ?>" />
             <p class="description"><?=__('If your\'re using purge path enter your path here, based on your server configuration, Example: /purge', $this->plugin)?></p>
+        <?php
+    }
+
+    /**
+    * @since 1.0.3
+    */
+    public function remote_cache_truncate_notice()
+    {
+        ?>
+        <label for="remote_cache_truncate_notice">
+            <input name="remote_cache_truncate_notice" type="checkbox" id="remote_cache_truncate_notice" value="1" <?php checked(1, get_option($this->prefix . 'use_purge_method'), true); ?> />
+	        <?=__('When using multiple Cache servers, RCPurger shows too many `Trying to purge URL` messages. Check this option to truncate that message.', $this->plugin)?>
+        </label>
         <?php
     }
 

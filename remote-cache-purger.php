@@ -4,7 +4,7 @@
      * Description: Clearing cache on remote NGINX servers (Kubernetes)
      * Author: Myros
      * Author URI: https://www.myros.net/
-     * Version: 1.0.2
+     * Version: 1.0.3
      
      * License: http://www.apache.org/licenses/LICENSE-2.0
      * Text Domain: remote-cache-purger
@@ -54,16 +54,17 @@ class Main {
     
     // settings
     protected $debug = 0;
-    protected $enabled = false;
+    protected $optEnabled = false;
     protected $optServersIP = [];
 
     // future
+    
     // protected $optDomains = null;
     // protected $optPurgeOnMenuSave = false;
     // protected $purgeKey = null;
     protected $usePurgeMethod = true;
     protected $purgePath = '';
-    // protected $responseHeader = null;
+    protected $responseCountHeader = null;
 
     private $registeredEvents = array(
         'publish_future_post',
@@ -88,12 +89,7 @@ class Main {
         $this->blogId = $blog_id;
 
         add_action('init', array(&$this, 'init'), 11);
-        add_action('activity_box_end', array($this, 'remote_purger_glance'), 100);
-
-        add_action('admin_enqueue_scripts', array( $this, 'add_scripts') );
-        add_action('wp_ajax_remote_cache_purge_all', array( $this, 'purgejs' ) );
-        add_action('wp_ajax_remote_cache_purge_item', array( $this, 'purgejs_item' ) );
-        add_action('wp_ajax_remote_cache_purge_url', array( $this, 'purgejs_url' ) );
+        
     }
 
     /**
@@ -111,22 +107,35 @@ class Main {
       
       $this->queue = new Queue();
 
-      $this->postTypes = get_post_types(array('show_in_rest' => true));
-
+      
       $this->loadOptions();
-
-      // register events to purge post
-      foreach ($this->registeredEvents as $event) {
-          add_action($event, array($this, 'addPost'), 10, 2);
-      }
-
+      
       // purge post/page cache from post/page actions
-      if ($this->check_if_purgeable()) {
-        require_once __DIR__ . '/includes/settings.php';
-        $this->admin = new Settings();
-        add_action('admin_bar_menu', array($this, 'purge_cache_from_adminbar'), 100);
-        add_filter('post_row_actions', array(&$this, 'post_row_actions'), 0, 2);
-        add_filter('page_row_actions', array(&$this, 'page_row_actions'), 0, 2);
+      if ($this->check_if_purgeable() ) {
+          
+          require_once __DIR__ . '/includes/settings.php';
+          $this->admin = new Settings();
+          
+          if ($this->optEnabled) {
+              $this->postTypes = get_post_types(array('show_in_rest' => true));
+
+              // register events to purge post
+              foreach ($this->registeredEvents as $event) {
+                  add_action($event, array($this, 'addPost'), 10, 2);
+              }
+
+              add_action('activity_box_end', array($this, 'remote_purger_glance'), 100);
+              
+              add_action('admin_enqueue_scripts', array( $this, 'add_scripts') );
+              add_action('wp_ajax_remote_cache_purge_all', array( $this, 'purgejs' ) );
+              add_action('wp_ajax_remote_cache_purge_item', array( $this, 'purgejs_item' ) );
+              add_action('wp_ajax_remote_cache_purge_url', array( $this, 'purgejs_url' ) );
+              
+              add_action('admin_bar_menu', array($this, 'purge_cache_from_adminbar'), 100);
+              add_filter('post_row_actions', array(&$this, 'post_row_actions'), 0, 2);
+              add_filter('page_row_actions', array(&$this, 'page_row_actions'), 0, 2);
+
+        }
       }
 
     //   $this->currentTab = isset($_GET['tab']) ? $_GET['tab'] : 'settings';
@@ -138,16 +147,24 @@ class Main {
     */
     protected function loadOptions()
     {
+        $this->optEnabled = get_option($this->prefix . 'enabled');
         $this->truncateNotice = get_option($this->prefix . 'truncate_notice');
         $this->debug = get_option($this->prefix . 'debug');
         $this->optServersIP = get_option($this->prefix . 'ips');
-        $this->optDomains = get_option($this->prefix . 'domains');
+        $this->optAdditionalDomains = get_option($this->prefix . 'additional_domains');
         $this->optUsePurgeMethod = get_option($this->prefix . 'use_purge_method');
         $this->optPurgePath = get_option($this->prefix . 'purge_path');
+        $this->optPurgeOnSave = get_option($this->prefix . 'purge_on_save');
+        $this->optPurgedCountHeader = get_option($this->prefix . 'purged_count_header');
 
         $serverIPS = explode(',', $this->optServersIP);
         foreach ($serverIPS as $key => $ip) {
             $this->serverIPS[] = trim($ip);
+        }
+
+        $additionalDomains = explode(',', $this->optAdditionalDomains);
+        foreach ($additionalDomains as $key => $domain) {
+            $this->additionalDomains[] = trim($domain);
         }
     }
 
@@ -453,63 +470,6 @@ class Main {
 
         return true;
     }
-
-    /**
-    * @since 1.0
-    */
-    public function remote_cache_enabled()
-    {
-        ?>
-            <input type="checkbox" name="remote_cache_enabled" value="1" <?php checked(1, get_option($this->prefix . 'enabled'), true); ?> />
-            <p class="description"><?=__('Enable Remote Cache Purge', $this->plugin)?></p>
-        <?php
-    }
-
-
-    /**
-    * @since 1.0
-    */
-    public function remote_cache_additional_domains()
-    {
-        ?>
-            <input type="checkbox" name="remote_cache_additional_domains" value="1" <?php checked(1, get_option($this->prefix . 'additional_domains'), true); ?> />
-            <p class="description">
-                <?=__('If empty, uses the $_SERVER[\'HTTP_HOST\'] as hash for Remote Server. This means the purge cache action will work on the domain you\'re on.<br />Do not use this option if you use only one domain.', $this->plugin)?>
-            </p>
-        <?php
-    }
-
-
-
-    /**
-    * @since 1.0
-    */
-    public function remote_cache_truncate_notice()
-    {
-        ?>
-            <input type="checkbox" name="remote_cache_truncate_notice" value="1" <?php checked(1, get_option($this->prefix . 'truncate_notice'), true); ?> />
-            <p class="description">
-                <?=__('When using multiple Cache servers, RCPurger shows too many `Trying to purge URL` messages. Check this option to truncate that message.', $this->plugin)?>
-            </p>
-        <?php
-    }
-
-    /**
-    * @since 1.0
-    */
-    public function remote_cache_purge_menu_save()
-    {
-        ?>
-            <input type="checkbox" name="remote_cache_purge_menu_save" value="1" <?php checked(1, get_option($this->prefix . 'purge_menu_save'), true); ?> />
-            <p class="description">
-                <?=__('Purge menu related pages when a menu is saved.', $this->plugin)?>
-            </p>
-        <?php
-    }
-
-
-
-    // end of console
 
     /**
     * @since 1.0
