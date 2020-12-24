@@ -12,7 +12,7 @@
 			var noticeId = 'remote-purger-notice-' + n;
 			var notice = $('<div class="notice" id="' + noticeId + '"><p>Started purging</p></div>');
 			container.append(notice);
-
+			
 			$.post(
 				ajaxurl,
 				{
@@ -31,6 +31,7 @@
 					if (!response.success) {
 						noticeClass = 'notice-error';
 					}
+					
 					
 					var elNotice = $('#' + noticeId)
 					elNotice.toggleClass(noticeClass);

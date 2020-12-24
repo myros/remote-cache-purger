@@ -7,3 +7,4 @@
 * purge on save (option)
 * debug
 * treat purge url as post (use relative urls)
+* vuejs?
