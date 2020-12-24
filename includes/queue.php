@@ -140,16 +140,21 @@ class Queue {
       
     curl_multi_close($mh);
 
-    foreach($this->responses as $key => $response) {
-      $this->plugin->noticeMessage .= $this->optUsePurgeMethod ? 'PURGE:' : 'GET';
-      
-      if(isset($response['headers'][$this->plugin->optResponseCountHeader] )) {
-        $this->plugin->noticeMessage .= '(' . $response['headers']['x-purged-count'] . ')';
+    if ($this->plugin->optTruncateNotice) {
+      $this->plugin->noticeMessage .= 'Purged';
+    }
+    else {
+      foreach($this->responses as $key => $response) {
+        $this->plugin->noticeMessage .= $this->optUsePurgeMethod ? 'PURGE:' : 'GET';
+        
+        if(isset($response['headers'][$this->plugin->optResponseCountHeader] )) {
+          $this->plugin->noticeMessage .= '(' . $response['headers']['x-purged-count'] . ')';
+        }
+
+        $this->plugin->noticeMessage .= ' | ' . $response['HTTP_CODE'] . ' | ' .  $response['url'];
+
+        $this->plugin->noticeMessage .= '<br/>';
       }
-
-      $this->plugin->noticeMessage .= ' | ' . $response['HTTP_CODE'] . ' | ' .  $response['url'];
-
-      $this->plugin->noticeMessage .= '<br/>';
     }
 
     $this->writeLog('commitPurge', 'End');

@@ -49,14 +49,13 @@ class Main {
     protected $postTypes = array('page', 'post');
     
     public $noticeMessage = '';
-    protected $truncateNotice = false;
-    protected $truncateCount = 0;
     
     // settings
     protected $debug = 0;
     protected $optEnabled = false;
     protected $optServersIP = [];
-
+    public $optTruncateNotice = false;
+    
     // future
     
     // protected $optDomains = null;
@@ -148,7 +147,6 @@ class Main {
     protected function loadOptions()
     {
         $this->optEnabled = get_option($this->prefix . 'enabled');
-        $this->truncateNotice = get_option($this->prefix . 'truncate_notice');
         $this->debug = get_option($this->prefix . 'debug');
         $this->optServersIP = get_option($this->prefix . 'ips');
         $this->optAdditionalDomains = get_option($this->prefix . 'additional_domains');
@@ -156,6 +154,7 @@ class Main {
         $this->optPurgePath = get_option($this->prefix . 'purge_path');
         $this->optPurgeOnSave = get_option($this->prefix . 'purge_on_save');
         $this->optPurgedCountHeader = get_option($this->prefix . 'purged_count_header');
+        $this->optTruncateNotice = get_option($this->prefix . 'truncate_notice');
 
         $serverIPS = explode(',', $this->optServersIP);
         foreach ($serverIPS as $key => $ip) {
