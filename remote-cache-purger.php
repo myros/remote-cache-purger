@@ -64,6 +64,16 @@ class Main {
     protected $purgePath = '';
     // protected $responseHeader = null;
 
+    private $registeredEvents = array(
+        'publish_future_post',
+        'save_post', 
+        'deleted_post',
+        'trashed_post',
+        'edit_post',
+        'delete_attachment',
+        'switch_theme',
+    );
+
     /**
     * Constructor.
     *
@@ -197,9 +207,9 @@ class Main {
         $this->admin_menu();
 
         // register events to purge post
-        // foreach ($this->get_register_events() as $event) {
-        //     // add_action($event, array($this, 'addPost'), 10, 2);
-        // }
+        foreach ($this->registeredEvents as $event) {
+            add_action($event, array($this, 'addPost'), 10, 2);
+        }
 
         // purge post/page cache from post/page actions
         if ($this->check_if_purgeable()) {
@@ -292,23 +302,6 @@ class Main {
             $text = $intro . ' ' . $nopermission;
         }
         echo '<div class="remote-purger-glance" id="wp-glance-purge-all-remote-cache">' . $text . '</div>';
-    }
-
-    /**
-    * @since 1.0
-    */
-    protected function get_register_events()
-    {
-        $actions = array(
-            'publish_future_post',
-            'save_post', 
-            'deleted_post',
-            'trashed_post',
-            'edit_post',
-            'delete_attachment',
-            'switch_theme',
-        );
-        return apply_filters('rcpurger_events', $actions);
     }
 
     /**
