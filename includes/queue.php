@@ -122,14 +122,10 @@ class Queue {
         CURLOPT_VERBOSE => false
     );
     
-    foreach(array_unique($this->queue) as $key => $url) {
+    $this->queue = array_unique($this->queue);
+    sort($this->queue);
 
-      
-
-      // if ($url == '*') {
-      //     $url = trailingslashit(get_site_url()) . '*'; // force url => *
-      // }
-
+    foreach($this->queue as $key => $url) {
       $parsedUrl = parse_url($url);
       $path = isset($parsedUrl['path']) ? $parsedUrl['path'] : '';
       $schema = $parsedUrl['scheme'];

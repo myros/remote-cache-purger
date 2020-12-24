@@ -55,7 +55,8 @@
 			// ugly hack to create a container div for our notices in the right location
 			container.removeClass('notice').show();
 			var noticeId = 'remote-purger-notice-' + n;
-			var notice = $('<div class="notice" id="' + noticeId + '"><p>Started purging</p></div>');
+			var notice = $('<div class="notice" id="' + noticeId + '"></div>');
+			notice.html('<p>Started purging</p>')
 			container.append(notice);
 			$.post(
 				ajaxurl,
@@ -74,9 +75,8 @@
 					if (!response.success) {
 						noticeClass = 'notice-error';
 					}
-					var elNotice = $('#' + noticeId)
-					elNotice.toggleClass(noticeClass);
-					elNotice.html('<p>' + response.message + '</p>')
+					notice.toggleClass(noticeClass);
+					notice.html('<p>' + response.message + '</p>')
 					container.empty().append(notice);
 					notice.on('click', function () {
 						$(this).remove();
@@ -101,6 +101,8 @@
 			var noticeId = 'remote-purger-notice-' + n;
 			console.log(noticeId)
 			var notice = $('<div class="notice" id="' + noticeId + '"><p>Started purging</p></div>');
+			notice.html('<p>Started purging</p>')
+
 			container.append(notice);
 			$.post(
 				ajaxurl,
@@ -121,8 +123,8 @@
 						noticeClass = 'notice-error';
 					}
 					var elNotice = $('#' + noticeId)
-					elNotice.toggleClass(noticeClass);
-					elNotice.html('<p>' + response.message + '</p>')
+					notice.toggleClass(noticeClass);
+					notice.html('<p>' + response.message + '</p>')
 					notice.on('click', function () {
 						$(this).fadeOut();
 					});
