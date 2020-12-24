@@ -135,6 +135,24 @@ class Main {
       $this->currentTab = isset($_GET['tab']) ? $_GET['tab'] : 'settings';
       $this->write_log('Init', 'End');
     }
+        
+    /**
+    * @since 1.0
+    */
+    protected function loadOptions()
+    {
+        $this->truncateNotice = get_option($this->prefix . 'truncate_notice');
+        $this->debug = get_option($this->prefix . 'debug');
+        $this->optServersIP = get_option($this->prefix . 'ips');
+        $this->optDomains = get_option($this->prefix . 'domains');
+        $this->optUsePurgeMethod = get_option($this->prefix . 'use_purge_method');
+        $this->optPurgePath = get_option($this->prefix . 'purge_path');
+
+        $serverIPS = explode(',', $this->optServersIP);
+        foreach ($serverIPS as $key => $ip) {
+            $this->serverIPS[] = trim($ip);
+        }
+    }
 
     /**
     * @since 1.0.1
@@ -236,24 +254,6 @@ class Main {
 		$this->queue->addURL( home_url() . '/.*' );
         
 		return $this;
-    }
-    
-    /**
-    * @since 1.0
-    */
-    protected function loadOptions()
-    {
-        $this->truncateNotice = get_option($this->prefix . 'truncate_notice');
-        $this->debug = get_option($this->prefix . 'debug');
-        $this->optServersIP = get_option($this->prefix . 'ips');
-        $this->optDomains = get_option($this->prefix . 'domains');
-        $this->optUsePurgeMethod = get_option($this->prefix . 'use_purge_method');
-        $this->optPurgePath = get_option($this->prefix . 'purge_path');
-
-        $serverIPS = explode(',', $this->optServersIP);
-        foreach ($serverIPS as $key => $ip) {
-            $this->serverIPS[] = trim($ip);
-        }
     }
 
     /**
@@ -696,34 +696,34 @@ class Main {
         }
         return $actions;
     }
-    
+        
+    /**
+    * @since 1.0.1
+    */
+    public function embed_wp_nonce() {
+        echo '<span id="' . self::NAME . '-purge-wp-nonce' . '" class="hidden">'
+            . wp_create_nonce( self::NAME . '-purge-wp-nonce' )
+            . '</span>';
+    }
+
+    /**
+    * @since 1.0.1
+    */
+    public function embed_admin_notices() {
+        echo '<div id="' . self::NAME . '-admin-notices' . '" class="hidden notice"></div>';
+    }
+
     /**
     * @since 1.0.1
     */
     public function write_log($method, $part = '', $message = '') {
-        if (true === WP_DEBUG) {
+        if (true === WP_DEBUG && $this->debug) {
             if (is_array($method) || is_object($method)) {
                 error_log(print_r($method . '::' . $part . ' => ' . $message, true));
             } else {
                 error_log($method . '::' . $part . ' => ' . $message);
             }
         }
-    }
-        
-    /**
-    * @since 1.0.1
-    */
-    public function embed_wp_nonce() {
-		echo '<span id="' . self::NAME . '-purge-wp-nonce' . '" class="hidden">'
-		     . wp_create_nonce( self::NAME . '-purge-wp-nonce' )
-		     . '</span>';
-    }
-    
-    /**
-    * @since 1.0.1
-    */
-    public function embed_admin_notices() {
-        echo '<div id="' . self::NAME . '-admin-notices' . '" class="hidden notice"></div>';
     }
     
 }
