@@ -15,7 +15,7 @@ class Queue {
   private $purgeAll = false;
   private $queue = array();
   private $responses = array();
-  private $version = '1.0.0';
+  private $version = '1.0.3';
   private $userAgent = 'cURL WP Remote Cache Purger ';
   
   // public $noticeMessage = '';
@@ -37,34 +37,15 @@ class Queue {
    * @since 1.0.1
   */
   public function addURL($url){
-    $parsedUrl = wp_parse_url( $url );
-    $parsedHome  = wp_parse_url( home_url() );
-
-		if ( ! isset( $parsedUrl['scheme'] ) or ! $parsedUrl['scheme'] ) {
-			$parsedUrl['scheme'] = $parsedHome['scheme'];
-		}
-
-		if ( ! isset( $parsedHome['path'] ) or ! $parsedHome['path'] ) {
-			$parsedHome['path'] = '/';
-		}
     
-		if ( ! isset( $parsedUrl['path'] ) or ! $parsedUrl['path'] ) {
-			$parsedUrl['path'] = $parsedHome['path'];
-		}
-
-		$purgeURL = $parsedUrl['scheme'] . '://' . $parsedHome['host'] . $parsedUrl['path'];
-
-		if ( isset( $parsedUrl['query'] ) and $parsedUrl['query'] ) {
-			$purgeURL .= '?' . $parsedUrl['query'];
-		}
-
-		if ( home_url() . '/.*' == $purgeURL ) {
-			$this->queue    = array();
+    if ( home_url() . '/.*' == $url || '/.*' == $url ) {
+      $this->queue    = array();
 			$this->purgeAll = true;
     }
-    
-    $this->writeLog('addURL', 'Added URL => ' . $purgeURL );
-    $this->queue[] = $purgeURL;
+   
+    $this->writeLog('addURL', 'Added URL => ' . $url );
+
+    $this->queue[] = $url;
 
   }
 
@@ -81,29 +62,10 @@ class Queue {
 
     $this->writeLog('commitPurge', 'Start purging server ' . $serverIP);
 
-    // $r = wp_remote_request(
-		// 	'http://localhost/purge/hello-world',
-		// 	array(
-		// 		'headers'   => array(
-		// 			'Host' => 'http://localhost',
-		// 		),
-		// 		'sslverify' => false,
-		// 	)
-    // );
+    if ( ! $this->queue ) {
+      return false;
+    }
 
-    
-      // foreach ( $r->get_error_messages() as $message ) {
-      //   $this->writeLog('commitPurge:97', $message);
-      // }
-      
-      // return false;
-    
-    // $this->writeLog('purgerCache', $r['headers']);
-
-    
-    // if ( ! $this->queue ) {
-    //   return true;
-    // }
     $ip = trim($serverIP);
     $mh = curl_multi_init(); // cURL multi-handle
     $requests = array(); // This will hold cURLS requests for each file
@@ -126,24 +88,22 @@ class Queue {
     sort($this->queue);
 
     foreach($this->queue as $key => $url) {
-      $parsedUrl = parse_url($url);
-      $path = isset($parsedUrl['path']) ? $parsedUrl['path'] : '';
-      $schema = $parsedUrl['scheme'];
-      $port = ( $parsedUrl['scheme'] == 'https' ? '443' : '80' );
+      $parsedUrl = $this->parseUrl($url);
+      $port = $parsedUrl['port'];
       $host = $parsedUrl['host'];
         
-      $fullUrl = $schema . '://' . $host . $this->plugin->optPurgePath . $path;
+      // $fullUrl = $parsedUrl['fullUrl']; # $schema . '://' . $host . $this->plugin->optPurgePath . $path;
       
-      $this->writeLog('commitPurge', 'Calling url ' . $fullUrl);
+      $this->writeLog('commitPurge', 'Calling URL ' . $parsedUrl['fullUrl']);
 
-      $handle = curl_init($fullUrl);
+      $handle = curl_init($parsedUrl['fullUrl']);
       $array_key = (int) $handle;
       $requests[$array_key]['curl_handle'] = $handle;
 
-      $requests[$array_key]['url'] = $url;
+      $requests[$array_key]['url'] = $parsedUrl['url'];
 
       $this->responses[$array_key] = array(
-          'url' => $url,
+          'url' => $parsedUrl['fullUrl'],
           'ip' => $ip
       );
       
@@ -158,7 +118,9 @@ class Queue {
           "{$host}:{$port}:{$ip}",
       ));
 
-      curl_setopt($handle, CURLOPT_HEADERFUNCTION, array($this, 'headerCallback'));
+      if ($this->plugin->optResponseCountHeader) {
+        curl_setopt($handle, CURLOPT_HEADERFUNCTION, array($this, 'headerCallback'));
+      }
 
       // Add cURL object to multi-handle
       curl_multi_add_handle($mh, $handle);
@@ -179,10 +141,10 @@ class Queue {
     curl_multi_close($mh);
 
     foreach($this->responses as $key => $response) {
-      if(isset($response['headers']['x-purged-count'] )) {
-          $this->plugin->noticeMessage .= 'PURGE: (' . $response['headers']['x-purged-count'] . ')';
-      } else {
-          $this->plugin->noticeMessage .= 'PURGE (0)';
+      $this->plugin->noticeMessage .= $this->optUsePurgeMethod ? 'PURGE:' : 'GET';
+      
+      if(isset($response['headers'][$this->plugin->optResponseCountHeader] )) {
+        $this->plugin->noticeMessage .= '(' . $response['headers']['x-purged-count'] . ')';
       }
 
       $this->plugin->noticeMessage .= ' | ' . $response['HTTP_CODE'] . ' | ' .  $response['url'];
@@ -205,7 +167,7 @@ class Queue {
    * @since 1.0.1
   */
   public function purge($url) {
-    return $url;
+
   }
 
   /**
@@ -218,7 +180,42 @@ class Queue {
    * @since 1.0.1
   */
   private function parseUrl($url) {
-    return $parsedUrl;
+    $parsedUrl = wp_parse_url( $url );
+    $parsedHome  = wp_parse_url( home_url() );
+
+		if ( ! isset( $parsedUrl['scheme'] ) or ! $parsedUrl['scheme'] ) {
+			$parsedUrl['scheme'] = $parsedHome['scheme'];
+    }
+    
+    if ( ! isset( $parsedHome['path'] ) or ! $parsedHome['path'] ) {
+			$parsedHome['path'] = '/';
+		}
+    
+		if ( ! isset( $parsedUrl['path'] ) or ! $parsedUrl['path'] ) {
+      $parsedUrl['path'] = $parsedHome['path'];
+		}
+    
+    if ( ! isset( $parsedUrl['port'] ) or ! $parsedUrl['port'] ) {
+      $parsedUrl['port'] = $parsedHome['scheme'] == 'https' ? '443' : '80';
+    }
+    
+    $fullUrl = $parsedUrl['scheme'] . '://' . $parsedHome['host'];
+    $fullUrl .= ($this->plugin->optUsePurgeMethod) ? $parsedUrl['path'] : $this->plugin->optPurgePath . $parsedUrl['path'];
+
+		if ( isset( $parsedUrl['query'] ) and $parsedUrl['query'] ) {
+			$purgeURL .= '?' . $parsedUrl['query'];
+    }
+
+    $this->writeLog('addURL', 'Added URL => ' . $url );
+
+    return [
+      'url' => $url,
+      'fullUrl' => $fullUrl,
+      'host' => $parsedHome['host'],
+      'path' => $parsedUrl['path'],
+      'port' => $parsedUrl['port'],
+      'scheme' => $parsedUrl['scheme']
+    ];
   }
 
   /**
@@ -257,8 +254,6 @@ class Queue {
   */
   private function userAgent()
   {
-      return '1.0.1';
+      return '1.0.3';
   }
 }
-
-// $rcpurger_queue = new \RemoteCachePurger\Queue;

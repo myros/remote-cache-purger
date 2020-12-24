@@ -10,3 +10,4 @@
 * update documentation
 * add screenshots
 * response count header
+* update all cache purge

@@ -62,9 +62,9 @@ class Main {
     // protected $optDomains = null;
     // protected $optPurgeOnMenuSave = false;
     // protected $purgeKey = null;
-    protected $usePurgeMethod = true;
-    protected $purgePath = '';
-    protected $responseCountHeader = null;
+    public $optUsePurgeMethod = true;
+    public $optPurgePath = '';
+    public $optResponseCountHeader = null;
 
     private $registeredEvents = array(
         'publish_future_post',
@@ -335,11 +335,10 @@ class Main {
         $is_root = $url == '*' || untrailingslashit($url) == get_site_url();
 
         if ($is_root){
-            $urls_to_purge = array('*');
-
             foreach ($this->serverIPS as $server) {
-                $this->responses = [];
-                $this->purgeServer($server, $urls_to_purge, false);
+                foreach ($this->serverIPS as $serverIP) {
+                    $this->queue->commitPurge($serverIP);
+                }
             }
         } else {
             $postid = url_to_postid($url);
@@ -348,9 +347,9 @@ class Main {
                 $this->addPost($postid);
             } else {
                 $this->queue->addURL($url);
-                foreach ($this->serverIPS as $serverIP) {
-                    $this->queue->commitPurge($serverIP);
-                }
+            }
+            foreach ($this->serverIPS as $serverIP) {
+                $this->queue->commitPurge($serverIP);
             }
         }
 
