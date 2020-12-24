@@ -2,9 +2,9 @@
 	$(function () {
 
 		// purge all from admin bar
-		$('#wp-admin-bar-purge-all-remote-cache a').click(function (e) {
+		$('#wp-admin-bar-purge-all-remote-cache a, #wp-glance-purge-all-remote-cache a').click(function (e) {
 			e.preventDefault();
-
+			
 			var d = new Date();
 			var n = d.getMilliseconds();
 

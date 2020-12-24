@@ -44,15 +44,11 @@ class Main {
     protected $plugin = 'cache-purger';
     protected $prefix = 'remote_cache_'; // remote cache purger
 
-    protected $purgeUrls = array();
     protected $serverIPS = array();
     protected $getParam = 'purge_remote_cache';
     protected $postTypes = array('page', 'post');
-    // protected $responses = array();
     
-    protected $noticeMessage = '';
     protected $truncateNotice = false;
-    protected $truncateNoticeShown = false;
     protected $truncateCount = 0;
     
     // settings
@@ -87,15 +83,14 @@ class Main {
         add_action('wp_ajax_remote_cache_purge_all', array( $this, 'purgejs' ) );
         add_action('wp_ajax_remote_cache_purge_item', array( $this, 'purgejs_item' ) );
         add_action('wp_ajax_remote_cache_purge_url', array( $this, 'purgejs_url' ) );
+
+        add_filter('admin_footer_text', array( &$this, 'admin_footer' ), 1, 2 );
     }
 
     /**
     * @since 1.0.1
     */
     public function purgejs() {
-       $this->write_log('PURGE');
-       $this->write_log(wp_verify_nonce( $_POST['wp_nonce'], self::NAME . '-purge-wp-nonce' ));
-       $this->write_log(wp_verify_nonce( $_POST['wp_nonce']));
 
         if ( wp_verify_nonce( $_POST['wp_nonce'], self::NAME . '-purge-wp-nonce' ) && $this->purgeAll() ) {
             echo json_encode( array(
@@ -190,75 +185,29 @@ class Main {
     */
     public function init()
     {
+        $this->write_log('Init', 'Start');
+
+        load_plugin_textdomain( self::NAME, false, self::NAME . '/languages' );
+
         $this->queue = new Queue();
 
-        $this->write_log('Init', 'Start');
         $this->postTypes = get_post_types(array('show_in_rest' => true));
 
         $this->loadOptions();
         $this->admin_menu();
 
-        add_action('wp', array($this, 'buffer_start'), 1000000);
-        add_action('shutdown', array($this, 'buffer_end'), 1000000);
-
-        $this->truncateNotice = get_option($this->prefix . 'truncate_notice');
-        $this->debug = get_option($this->prefix . 'debug');
-
-        // logged in cookie
-        // add_action('wp_login', array($this, 'wp_login'), 1000000);
-        // add_action('wp_logout', array($this, 'wp_logout'), 1000000);
-
         // register events to purge post
-        foreach ($this->get_register_events() as $event) {
-            add_action($event, array($this, 'addPost'), 10, 2);
-        }
-
-        // purge all cache from admin bar
-        if ($this->check_if_purgeable()) {
-            add_action('admin_bar_menu', array($this, 'purge_cache_from_adminbar'), 100);
-
-            if (isset($_GET[$this->getParam]) && check_admin_referer($this->plugin)) {
-                $this->write_log('Init', 'AdminBar', 'Purge cache');
-                if ($this->optServersIP == null) {
-                    add_action('admin_notices' , array($this, 'purge_message_no_ips'));
-                } else {
-                    $this->purgeCache();
-                }
-            }
-        }
+        // foreach ($this->get_register_events() as $event) {
+        //     // add_action($event, array($this, 'addPost'), 10, 2);
+        // }
 
         // purge post/page cache from post/page actions
         if ($this->check_if_purgeable()) {
-            if(!session_id()) {
-                session_start();
-            }
-
+            add_action('admin_bar_menu', array($this, 'purge_cache_from_adminbar'), 100);
             add_filter('post_row_actions', array(&$this, 'post_row_actions'), 0, 2);
             add_filter('page_row_actions', array(&$this, 'page_row_actions'), 0, 2);
-
-            if (isset($_GET['action']) && isset($_GET['post_id']) && ($_GET['action'] == 'purge_remote_cache') && check_admin_referer($this->plugin)) {
-                $this->write_log('Init', 'Purging post', $_GET['post_id']);
-                
-                $this->addPost($_GET['post_id']);
-                $this->purgeCache();
-
-                // TODO: Update this
-                $_SESSION['remote_cache_message'] = $this->noticeMessage;
-                $this->write_log('Init => ' . wp_get_referer());
-                $referer = str_replace('purge_remote_cache=1', '', wp_get_referer());
-                wp_redirect($referer . (strpos($referer, '?') ? '&' : '?'));
-            }
-            if (isset($_SESSION['remote_cache_message'])) {
-                add_action('admin_notices' , array($this, 'purge_post_page'));
-            }
         }
 
-        // console purge
-        if ($this->check_if_purgeable() && isset($_POST['remote_cache_purge_url'])) {
-            $this->write_log('Init', 'ConsolePurge');
-            $this->purge_url(home_url() . $_POST['remote_cache_purge_url']);
-            add_action('admin_notices' , array($this, 'purge_message'));
-        }
         $this->currentTab = isset($_GET['tab']) ? $_GET['tab'] : 'settings';
         $this->write_log('Init', 'End');
     }
@@ -274,58 +223,12 @@ class Main {
     }
     
     /**
-    * @since 1.0.1
-    */
-    public function wp_login()
-    {
-        $cookie = get_option($this->prefix . 'cookie');
-        if (!empty($cookie)) {
-            setcookie($cookie, 1, time()+3600*24*100, COOKIEPATH, COOKIE_DOMAIN, false, true);
-        }
-    }
-
-    /**
-    * @since 1.0.1
-    */
-    public function wp_logout()
-    {
-        $cookie = get_option($this->prefix . 'cookie');
-        if (!empty($cookie)) {
-            setcookie($cookie, null, time()-3600*24*100, COOKIEPATH, COOKIE_DOMAIN, false, true);
-        }
-    }
-
-    /**
-    * @since 1.0
-    */
-    public function buffer_callback($buffer)
-    {
-        return $buffer;
-    }
-
-    /**
-    * @since 1.0
-    */
-    public function buffer_start()
-    {
-        ob_start(array($this, "buffer_callback"));
-    }
-
-    /**
-    * @since 1.0
-    */
-    public function buffer_end()
-    {
-        if (ob_get_level() > 0) {
-            ob_end_flush();
-        }
-    }
-
-    /**
     * @since 1.0
     */
     protected function loadOptions()
     {
+        $this->truncateNotice = get_option($this->prefix . 'truncate_notice');
+        $this->debug = get_option($this->prefix . 'debug');
         $this->optServersIP = get_option($this->prefix . 'ips');
         $this->optDomains = get_option($this->prefix . 'domains');
         $this->optUsePurgeMethod = get_option($this->prefix . 'use_purge_method');
@@ -348,41 +251,12 @@ class Main {
     /**
     * @since 1.0
     */
-    public function purge_message()
-    {
-        $this->write_log('Init', 'PurgeMessage');
-        echo '<div id="message" class="updated fade"><p><strong>' . __('Remote Cache Purger', $this->plugin) . '</strong><br /><br />' . $this->noticeMessage . '</p></div>';
-    }
-
-    /**
-    * @since 1.0
-    */
-    public function purge_message_no_ips()
-    {
-        echo '<div id="message" class="error fade"><p><strong>' . __('Please set the IPs for remote server(s)!', $this->plugin) . '</strong></p></div>';
-    }
-
-    /**
-    * @since 1.0
-    */
-    public function purge_post_page()
-    {
-        // $this->write_log('PurgePostPage', 'Print message', ($_SESSION['remote_cache_note']));
-        if (isset($_SESSION['remote_cache_message'])) {
-            echo '<div id="message" class="updated fade"><p><strong>' . __('Remote Cache Purger', $this->plugin) . '</strong><br /><br />' . $_SESSION['remote_cache_message'] . '</p></div>';
-            unset ($_SESSION['remote_cache_message']);
-        }
-    }
-
-    /**
-    * @since 1.0
-    */
     public function purge_cache_from_adminbar($admin_bar)
     {
         $admin_bar->add_menu(array(
             'id'    => 'purge-all-remote-cache',
             'title' => __('Purge Cache', $this->plugin),
-            'href'  => 'javascript:;', // wp_nonce_url(add_query_arg($this->getParam, 1), $this->plugin),
+            'href'  => 'javascript:;',
             'meta'  => array(
                 'title' => __('Purge Cache', $this->plugin),
             )
@@ -400,26 +274,24 @@ class Main {
     */
     public function remote_purger_glance()
     {
-        $url = wp_nonce_url(admin_url('?' . $this->getParam), $this->plugin);
-        $button = '';
+        $data = '';
         $nopermission = '';
-        $intro = '';
         if ($this->optServersIP == null) {
             $intro .= sprintf(__('Please setup Remote Host IPs to be able to use <a href="%1$s">Remote Cache Purger</a>.', $this->plugin), 'http://wordpress.org/plugins/remote-cache-purger/');
         } else {
-            $intro .= sprintf(__('<a href="%1$s">Remote Cache Purge</a> automatically purges your posts when published or updated. Sometimes you need a manual flush.', $this->plugin), 'http://wordpress.org/plugins/remote-cache-purger/');
-            $button .=  __('Press the button below to force it to purge your entire cache.', $this->plugin);
-            $button .= '</p><p><span class="button"><a href="' . $url . '"><strong>';
-            $button .= __('Purge ALL Remote Cache', $this->plugin);
-            $button .= '</strong></a></span>';
+            $data .= sprintf(__('<a href="%1$s">Remote Cache Purge</a> automatically purges your posts when published or updated. Sometimes you need a manual flush.', $this->plugin), 'http://wordpress.org/plugins/remote-cache-purger/');
+            $data .=  __('Press the button below to force it to purge your entire cache.', $this->plugin);
+            $data .= '</p><p><span class="button"><a href=javascript:;><strong>';
+            $data .= __('Purge ALL Remote Cache', $this->plugin);
+            $data .= '</strong></a></span>';
             $nopermission .=  __('You do not have permission to purge the cache for the whole site. Please contact your adminstrator.', $this->plugin);
         }
         if ($this->check_if_purgeable()) {
-            $text = $intro . ' ' . $button;
+            $text = $data;
         } else {
             $text = $intro . ' ' . $nopermission;
         }
-        echo '<p class="remote-purger-glance">' . $text . '</p>';
+        echo '<div class="remote-purger-glance" id="wp-glance-purge-all-remote-cache">' . $text . '</div>';
     }
 
     /**
@@ -464,7 +336,6 @@ class Main {
             } else {
                 $this->queue->addURL($url);
                 foreach ($this->serverIPS as $serverIP) {
-                    // $this->purgeServer($server, $purgeUrls);
                     $this->queue->commitPurge($serverIP);
                 }
             }
@@ -499,7 +370,6 @@ class Main {
             $categories = get_the_category($postId);
             if ($categories) {
                 foreach ($categories as $cat) {
-                    $this->queue->addURL(get_category_link($cat->term_id));
                     array_push($listofurls, get_category_link($cat->term_id));
                 }
             }
@@ -507,15 +377,11 @@ class Main {
             $tags = get_the_tags($postId);
             if ($tags) {
                 foreach ($tags as $tag) {
-                    $this->queue->addURL(get_tag_link($tag->term_id));
                     array_push($listofurls, get_tag_link($tag->term_id));
                 }
             }
 
             // Author URL
-            $this->queue->addURL(get_author_posts_url(get_post_field('post_author', $postId)));
-            $this->queue->addURL(get_author_feed_link(get_post_field('post_author', $postId)));
-
             array_push($listofurls,
                 get_author_posts_url(get_post_field('post_author', $postId)),
                 get_author_feed_link(get_post_field('post_author', $postId))
@@ -524,9 +390,6 @@ class Main {
             // Archives and their feeds
             $archiveurls = array();
             if (get_post_type_archive_link(get_post_type($postId)) == true) {
-                $this->queue->addURL(get_post_type_archive_link( get_post_type($postId)));
-                $this->queue->addURL(get_post_type_archive_feed_link( get_post_type($postId)));
-
                 array_push($listofurls,
                     get_post_type_archive_link( get_post_type($postId)),
                     get_post_type_archive_feed_link( get_post_type($postId))
@@ -535,16 +398,8 @@ class Main {
 
             // Post URL
             array_push($listofurls, get_permalink($postId));
-            $this->queue->addURL(get_permalink($postId));
 
             // Feeds
-            $this->queue->addURL(get_bloginfo_rss('rdf_url'));
-            $this->queue->addURL(get_bloginfo_rss('rss_url'));
-            $this->queue->addURL(get_bloginfo_rss('rss2_url'));
-            $this->queue->addURL(get_bloginfo_rss('atom_url'));
-            $this->queue->addURL(get_bloginfo_rss('comments_rss2_url'));
-            $this->queue->addURL(get_post_comments_feed_link($postId));
-
             array_push($listofurls,
                 get_bloginfo_rss('rdf_url') ,
                 get_bloginfo_rss('rss_url') ,
@@ -557,52 +412,21 @@ class Main {
             // Home Page and (if used) posts page
             array_push($listofurls, home_url('/'));
             if (get_option('show_on_front') == 'page') {
-                $this->queue->addURL(get_permalink(get_option('page_for_posts')));
                 array_push($listofurls, get_permalink(get_option('page_for_posts')));
             }
 
             // If Automattic's AMP is installed, add AMP permalink
             if (function_exists('amp_get_permalink')) {
-                $this->queue->addURL(amp_get_permalink($postId));
                 array_push($listofurls, amp_get_permalink($postId));
             }
 
             // Now flush all the URLs we've collected
             foreach ($listofurls as $url) {
                 $this->queue->addURL($url);
-                array_push($this->purgeUrls, $url);
             }
         }
-        // $this->purgeUrls = apply_filters('rcpurger_purge_urls', $this->purgeUrls, $postId);
-        // $this->purgeCache();
     }
 
-    /**
-     * Purge 
-     * @since 1.0
-    */
-    // public function purgeCache()
-    // {
-    //     $purgeUrls = array_unique($this->purgeUrls);
-
-    //     if (empty($purgeUrls)) {
-    //         if (isset($_GET[$this->getParam]) && $this->check_if_purgeable() && check_admin_referer($this->plugin)) {
-    //             $this->purge_url(home_url());
-    //         }
-    //     } else {
-            
-    //         $urls_to_purge = [];  
-    //         foreach($purgeUrls as $key => $url) {
-    //             array_push($urls_to_purge, $url);
-    //         }
-
-    //         foreach ($this->serverIPS as $serverIP) {
-    //             // $this->purgeServer($server, $purgeUrls);
-    //             $this->queue->commitPurge($serverIP);
-    //         }
-    //     }
-    // }
-    
     /**
      * Purge all pages
      * @since 1.0.1
@@ -628,7 +452,6 @@ class Main {
         $this->addPost($postID);
 
         foreach ($this->serverIPS as $serverIP) {
-            // $this->purgeServer($server, $purgeUrls);
             $this->queue->commitPurge($serverIP);
         }
 
@@ -700,9 +523,9 @@ class Main {
 
         // add_settings_field($this->prefix . "enabled", __("Enable" , $this->plugin), array($this, $this->prefix . "enabled"), $this->prefix . 'settings', $this->prefix . 'settings');
         add_settings_field($this->prefix . "ips", __("IPs", $this->plugin), array($this, $this->prefix . "ips"), $this->prefix . 'settings', $this->prefix . 'settings');
-        // add_settings_field($this->prefix . "dynamic_hosts", __("Additional domains", $this->plugin), array($this, $this->prefix . "ips"), $this->prefix . 'settings', $this->prefix . 'settings');
+        // add_settings_field($this->prefix . "additional_domains", __("Additional domains", $this->plugin), array($this, $this->prefix . "ips"), $this->prefix . 'settings', $this->prefix . 'settings');
         // add_settings_field($this->prefix . "purge_key", __("Purge key", $this->plugin), array($this, $this->prefix . "purge_key"), $this->prefix . 'settings', $this->prefix . 'settings');
-        add_settings_field($this->prefix . "truncate_notice", __("Truncate notice message", $this->plugin), array($this, $this->prefix . "truncate_notice"), $this->prefix . 'settings', $this->prefix . 'settings');
+        // add_settings_field($this->prefix . "truncate_notice", __("Truncate notice message", $this->plugin), array($this, $this->prefix . "truncate_notice"), $this->prefix . 'settings', $this->prefix . 'settings');
         add_settings_field($this->prefix . "use_purge_method", __("Use PURGE method", $this->plugin), array($this, $this->prefix . "use_purge_method"), $this->prefix . 'settings', $this->prefix . 'settings');
         // add_settings_field($this->prefix . "debug", __("Enable debug", $this->plugin), array($this, $this->prefix . "debug"), $this->prefix . 'settings', $this->prefix . 'settings');
         add_settings_field($this->prefix . "purge_path", __("PURGE path", $this->plugin), array($this, $this->prefix . "purge_path"), $this->prefix . 'settings', $this->prefix . 'settings');
@@ -713,10 +536,10 @@ class Main {
             // register_setting($this->prefix . 'settings', $this->prefix . "enabled");
             register_setting($this->prefix . 'settings', $this->prefix . "ips");
             // register_setting($this->prefix . 'settings', $this->prefix . "purge_key");
-            register_setting($this->prefix . 'settings', $this->prefix . "truncate_notice");
+            // register_setting($this->prefix . 'settings', $this->prefix . "truncate_notice");
             register_setting($this->prefix . 'settings', $this->prefix . "use_purge_method", true);
             register_setting($this->prefix . 'settings', $this->prefix . "purge_path");
-            // register_setting($this->prefix . 'settings', $this->prefix . "dynamic_hosts");
+            // register_setting($this->prefix . 'settings', $this->prefix . "additional_domains");
             // register_setting($this->prefix . 'settings', $this->prefix . "debug");
         }
 
@@ -747,10 +570,10 @@ class Main {
     /**
     * @since 1.0
     */
-    public function remote_cache_dynamic_hosts()
+    public function remote_cache_additional_domains()
     {
         ?>
-            <input type="checkbox" name="remote_cache_dynamic_hosts" value="1" <?php checked(1, get_option($this->prefix . 'dynamic_hosts'), true); ?> />
+            <input type="checkbox" name="remote_cache_additional_domains" value="1" <?php checked(1, get_option($this->prefix . 'additional_domains'), true); ?> />
             <p class="description">
                 <?=__('If empty, uses the $_SERVER[\'HTTP_HOST\'] as hash for Remote Server. This means the purge cache action will work on the domain you\'re on.<br />Do not use this option if you use only one domain.', $this->plugin)?>
             </p>
@@ -901,12 +724,41 @@ class Main {
     * @since 1.0.1
     */
     public function embed_admin_notices() {
-		echo '<div id="' . self::NAME . '-admin-notices' . '" class="hidden notice"></div>';
+        echo '<div id="' . self::NAME . '-admin-notices' . '" class="hidden notice"></div>';
+    }
+    
+    /**
+    * @since 1.0.1
+    */
+	public function admin_footer( $text ) {
+
+        global $current_screen;
+
+        $review_url  = 'https://wordpress.org/support/plugin/remote-cache-purger/reviews/?filter=5#new-post';
+        $dream_url   = 'https://myros.net/';
+        $footer_text = sprintf(
+            wp_kses(
+                __( 'Brought to you <a href="%1$s" target="_blank" rel="noopener noreferrer">by Myros</a>. Please rate %2$s <a href="%3$s" target="_blank" rel="noopener noreferrer">&#9733;&#9733;&#9733;&#9733;&#9733;</a> on <a href="%4$s" target="_blank" rel="noopener">WordPress.org</a> to help us spread the word.', 'varnish-http-purge' ),
+                array(
+                    'a' => array(
+                        'href'   => array(),
+                        'target' => array(),
+                        'rel'    => array(),
+                    ),
+                )
+            ),
+            $dream_url,
+            '<strong>Remote Cache Purger</strong>',
+            $review_url,
+            $review_url
+        );
+        $text = $footer_text;
+
+		return $text;
 	}
 }
 
 \RemoteCachePurger\Main::getInstance();
-// $rcpurger = new \RemoteCachePurger\Main;
 
 // WP-CLI
 if (defined('WP_CLI') && WP_CLI) {

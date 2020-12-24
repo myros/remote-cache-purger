@@ -6,3 +6,4 @@
 * dynamic response header for cleared items count
 * purge on save (option)
 * debug
+* treat purge url as post (use relative urls)
