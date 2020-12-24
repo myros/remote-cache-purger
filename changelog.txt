@@ -7,7 +7,9 @@
   * ADDED: additional domains
   * ADDED: enable/disable purge
   * ADDED: Response Count Header
-  
+  * UPDATE: Only if Response Count Header is set, number of purged items will be shown
+  * FIX: Add query to url
+
 = 1.0.2 - 2020/12 =
 
   * Debug
