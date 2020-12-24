@@ -258,7 +258,7 @@ class Settings {
         ?>
         <label for="remote_cache_truncate_notice">
             <input name="remote_cache_truncate_notice" type="checkbox" id="remote_cache_truncate_notice" value="1" <?php checked(1, get_option($this->prefix . 'truncate_notice'), true); ?> />
-	        <?=__('When using multiple Cache servers, RCPurger shows too many `Trying to purge URL` messages. Check this option to truncate that message.', $this->plugin)?>
+	        <?=__('When using multiple Cache servers, RCPurger shows too many purging messages. Check this option to truncate that message.', $this->plugin)?>
         </label>
         <?php
     }

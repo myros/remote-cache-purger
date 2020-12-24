@@ -88,6 +88,7 @@ class Queue {
     sort($this->queue);
 
     foreach($this->queue as $key => $url) {
+      $this->writeLog('commitPurge', 'URL ' . $url);
       $parsedUrl = $this->parseUrl($url);
       $port = $parsedUrl['port'];
       $host = $parsedUrl['host'];
@@ -203,13 +204,13 @@ class Queue {
     if ( ! isset( $parsedUrl['port'] ) or ! $parsedUrl['port'] ) {
       $parsedUrl['port'] = $parsedHome['scheme'] == 'https' ? '443' : '80';
     }
+
+    $query = ( isset( $parsedUrl['query'] ) and $parsedUrl['query'] ) ? '?' . $parsedUrl['query'] : '';
     
     $fullUrl = $parsedUrl['scheme'] . '://' . $parsedHome['host'];
     $fullUrl .= ($this->plugin->optUsePurgeMethod) ? $parsedUrl['path'] : $this->plugin->optPurgePath . $parsedUrl['path'];
+    $fullUrl .= $query;
 
-		if ( isset( $parsedUrl['query'] ) and $parsedUrl['query'] ) {
-			$purgeURL .= '?' . $parsedUrl['query'];
-    }
 
     $this->writeLog('addURL', 'Added URL => ' . $url );
 
@@ -219,7 +220,8 @@ class Queue {
       'host' => $parsedHome['host'],
       'path' => $parsedUrl['path'],
       'port' => $parsedUrl['port'],
-      'scheme' => $parsedUrl['scheme']
+      'scheme' => $parsedUrl['scheme'],
+      'query' => $query
     ];
   }
 
