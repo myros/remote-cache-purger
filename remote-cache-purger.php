@@ -35,7 +35,7 @@ class Main {
     const NAME = 'remote-cache-purger';
 
     private static $instance = null;
-	private $queue = null;
+    private $queue = null;
     private $admin = null;
     
     // general
@@ -48,6 +48,7 @@ class Main {
     protected $getParam = 'purge_remote_cache';
     protected $postTypes = array('page', 'post');
     
+    public $noticeMessage = '';
     protected $truncateNotice = false;
     protected $truncateCount = 0;
     
@@ -86,15 +87,53 @@ class Main {
 
         $this->blogId = $blog_id;
 
-        $this->write_log(plugins_url( 'assets/js/admin.js', dirname( __FILE__ ) ));
         add_action('init', array(&$this, 'init'), 11);
         add_action('activity_box_end', array($this, 'remote_purger_glance'), 100);
+
         add_action('admin_enqueue_scripts', array( $this, 'add_scripts') );
         add_action('wp_ajax_remote_cache_purge_all', array( $this, 'purgejs' ) );
         add_action('wp_ajax_remote_cache_purge_item', array( $this, 'purgejs_item' ) );
         add_action('wp_ajax_remote_cache_purge_url', array( $this, 'purgejs_url' ) );
 
-        add_filter('admin_footer_text', array( &$this, 'admin_footer' ), 1, 2 );
+        
+    }
+
+    /**
+    * @since 1.0
+    */
+    public function init()
+    {
+      $this->write_log('Init', 'Start');
+
+      load_plugin_textdomain( self::NAME, false, self::NAME . '/languages' );
+
+      if ( is_admin() ) {
+        // do nothing for now
+      }
+      
+      $this->queue = new Queue();
+
+      $this->postTypes = get_post_types(array('show_in_rest' => true));
+
+      $this->loadOptions();
+      $this->admin_menu();
+
+      // register events to purge post
+      foreach ($this->registeredEvents as $event) {
+          add_action($event, array($this, 'addPost'), 10, 2);
+      }
+
+      // purge post/page cache from post/page actions
+      if ($this->check_if_purgeable()) {
+        require_once __DIR__ . '/includes/settings.php';
+        $this->admin = new Settings();
+        add_action('admin_bar_menu', array($this, 'purge_cache_from_adminbar'), 100);
+        add_filter('post_row_actions', array(&$this, 'post_row_actions'), 0, 2);
+        add_filter('page_row_actions', array(&$this, 'page_row_actions'), 0, 2);
+      }
+
+      $this->currentTab = isset($_GET['tab']) ? $_GET['tab'] : 'settings';
+      $this->write_log('Init', 'End');
     }
 
     /**
@@ -102,20 +141,20 @@ class Main {
     */
     public function purgejs() {
 
-        if ( wp_verify_nonce( $_POST['wp_nonce'], self::NAME . '-purge-wp-nonce' ) && $this->purgeAll() ) {
-            echo json_encode( array(
-                'success' => true,
-                'message' => __( $this->queue->noticeMessage, 'remote-cache-purger' )
-            ) );
+      if ( wp_verify_nonce( $_POST['wp_nonce'], self::NAME . '-purge-wp-nonce' ) && $this->purgeAll() ) {
+        echo json_encode( array(
+          'success' => true,
+          'message' => __( $this->noticeMessage, 'remote-cache-purger' )
+        ) );
 
-        } else {
-            echo json_encode( array(
-                'success' => false,
-                'message' => __( 'The Remote Cache could not be purged!', 'remote-cache-purger' )
-            ) );
-        }
+      } else {
+        echo json_encode( array(
+          'success' => false,
+          'message' => __( 'The Remote Cache could not be purged!', 'remote-cache-purger' )
+        ) );
+      }
 
-        exit();
+      exit();
     }
 
     /**
@@ -128,18 +167,18 @@ class Main {
 
         if ( wp_verify_nonce( $_POST['wp_nonce'], self::NAME . '-purge-wp-nonce' )) {
             if ($this->purgeItem($id)) {
-                echo json_encode( array(
-                    'success' => true,
-                    'message' => __( $this->queue->noticeMessage, 'remote-cache-purger' )
-                ) );
+              echo json_encode( array(
+                'success' => true,
+                'message' => __( $this->noticeMessage, 'remote-cache-purger' )
+              ) );
 
-                exit();
+              exit();
             }
         }
 
         echo json_encode( array(
-            'success' => false,
-            'message' => __( 'Remote Cache could not be purged!', 'remote-cache-purger' )
+          'success' => false,
+          'message' => __( 'Remote Cache could not be purged!', 'remote-cache-purger' )
         ) );
 
         exit();
@@ -157,7 +196,7 @@ class Main {
             if ($this->purgeUrl($url)) {
                 echo json_encode( array(
                     'success' => true,
-                    'message' => __( $this->queue->noticeMessage, 'remote-cache-purger' )
+                    'message' => __( $this->noticeMessage, 'remote-cache-purger' )
                 ) );
 
                 exit();
@@ -186,42 +225,9 @@ class Main {
     * @since 1.0.1
     */
     public function add_scripts() {
-		wp_register_script( self::NAME, plugins_url( 'cache-purger/assets/js/admin.js', dirname( __FILE__ ) ) );
-		wp_enqueue_script( self::NAME );
+      wp_register_script( self::NAME, plugins_url('assets/js/admin.js', __FILE__ ) );
+      wp_enqueue_script( self::NAME );
     }
-    
-    /**
-    * @since 1.0
-    */
-    public function init()
-    {
-        $this->write_log('Init', 'Start');
-
-        load_plugin_textdomain( self::NAME, false, self::NAME . '/languages' );
-
-        $this->queue = new Queue();
-
-        $this->postTypes = get_post_types(array('show_in_rest' => true));
-
-        $this->loadOptions();
-        $this->admin_menu();
-
-        // register events to purge post
-        foreach ($this->registeredEvents as $event) {
-            add_action($event, array($this, 'addPost'), 10, 2);
-        }
-
-        // purge post/page cache from post/page actions
-        if ($this->check_if_purgeable()) {
-            add_action('admin_bar_menu', array($this, 'purge_cache_from_adminbar'), 100);
-            add_filter('post_row_actions', array(&$this, 'post_row_actions'), 0, 2);
-            add_filter('page_row_actions', array(&$this, 'page_row_actions'), 0, 2);
-        }
-
-        $this->currentTab = isset($_GET['tab']) ? $_GET['tab'] : 'settings';
-        $this->write_log('Init', 'End');
-    }
-
     
     /**
     * @since 1.0.1
@@ -720,35 +726,6 @@ class Main {
         echo '<div id="' . self::NAME . '-admin-notices' . '" class="hidden notice"></div>';
     }
     
-    /**
-    * @since 1.0.1
-    */
-	public function admin_footer( $text ) {
-
-        global $current_screen;
-
-        $review_url  = 'https://wordpress.org/support/plugin/remote-cache-purger/reviews/?filter=5#new-post';
-        $dream_url   = 'https://myros.net/';
-        $footer_text = sprintf(
-            wp_kses(
-                __( 'Brought to you <a href="%1$s" target="_blank" rel="noopener noreferrer">by Myros</a>. Please rate %2$s <a href="%3$s" target="_blank" rel="noopener noreferrer">&#9733;&#9733;&#9733;&#9733;&#9733;</a> on <a href="%4$s" target="_blank" rel="noopener">WordPress.org</a> to help us spread the word.', 'varnish-http-purge' ),
-                array(
-                    'a' => array(
-                        'href'   => array(),
-                        'target' => array(),
-                        'rel'    => array(),
-                    ),
-                )
-            ),
-            $dream_url,
-            '<strong>Remote Cache Purger</strong>',
-            $review_url,
-            $review_url
-        );
-        $text = $footer_text;
-
-		return $text;
-	}
 }
 
 \RemoteCachePurger\Main::getInstance();

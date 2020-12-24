@@ -18,7 +18,7 @@ class Queue {
   private $version = '1.0.0';
   private $userAgent = 'cURL WP Remote Cache Purger ';
   
-  public $noticeMessage = '';
+  // public $noticeMessage = '';
 
   /**
    * @since 1.0.1
@@ -169,7 +169,7 @@ class Queue {
       curl_multi_exec($mh, $running);
     } while ($running);
       
-    $this->noticeMessage .= '<br/>SERVER: ' . $ip . '<br/>';
+    $this->plugin->noticeMessage .= '<br/>SERVER: ' . $ip . '<br/>';
       
     foreach ($requests as $key => $request) {
       $this->responses[$key]['HTTP_CODE'] = curl_getinfo($request['curl_handle'], CURLINFO_HTTP_CODE);
@@ -180,14 +180,14 @@ class Queue {
 
     foreach($this->responses as $key => $response) {
       if(isset($response['headers']['x-purged-count'] )) {
-          $this->noticeMessage .= 'PURGE: (' . $response['headers']['x-purged-count'] . ')';
+          $this->plugin->noticeMessage .= 'PURGE: (' . $response['headers']['x-purged-count'] . ')';
       } else {
-          $this->noticeMessage .= 'PURGE (0)';
+          $this->plugin->noticeMessage .= 'PURGE (0)';
       }
 
-      $this->noticeMessage .= ' | ' . $response['HTTP_CODE'] . ' | ' .  $response['url'];
+      $this->plugin->noticeMessage .= ' | ' . $response['HTTP_CODE'] . ' | ' .  $response['url'];
 
-      $this->noticeMessage .= '<br/>';
+      $this->plugin->noticeMessage .= '<br/>';
     }
 
     $this->writeLog('commitPurge', 'End');

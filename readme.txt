@@ -23,8 +23,6 @@ Plugin will empty remote server's cache content (only NGINX at this moment).
 
 One common method of caching content for websites is via the use of reverse proxy caching. Common examples of this are <a href="https://www.varnish-cache.org/">Varnish</a> and <a href="https://www.nginx.com/">Nginx</a>. These systems allow a website to update content and have the visitor's experience cached without the need for complex plugins storing the files locally and using up a user's disk space.
 
-A reverse proxy cache is installed in front of a server and reviews requests. If the page being requested is already cached, it delivers the cached content. Otherwise it generates the page and the cache on demand.
-
 The Remote Cache Purger plugin sends a request to delete (aka flush) the cached data of a page or post to remote server(s).
 
 = How It Works =
