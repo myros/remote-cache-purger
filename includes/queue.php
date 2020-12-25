@@ -102,6 +102,7 @@ class Queue {
       $requests[$array_key]['curl_handle'] = $handle;
 
       $requests[$array_key]['url'] = $parsedUrl['url'];
+      $requests[$array_key]['method'] = 'GET';
 
       $this->responses[$array_key] = array(
           'url' => $parsedUrl['fullUrl'],
@@ -112,7 +113,8 @@ class Queue {
       curl_setopt_array($handle, $options);
       
       if ($this->plugin->optUsePurgeMethod) {
-          curl_setopt($handle, CURLOPT_CUSTOMREQUEST, "PURGE");
+        $requests[$array_key]['method'] = 'PURGE';
+        curl_setopt($handle, CURLOPT_CUSTOMREQUEST, "PURGE");
       }
 
       curl_setopt($handle, CURLOPT_RESOLVE, array(
@@ -146,7 +148,7 @@ class Queue {
     }
     else {
       foreach($this->responses as $key => $response) {
-        $this->plugin->noticeMessage .= $this->optUsePurgeMethod ? 'PURGE:' : 'GET';
+        $this->plugin->noticeMessage .= $requests[$key]['method'];
         
         if(isset($response['headers'][$this->plugin->optResponseCountHeader] )) {
           $this->plugin->noticeMessage .= '(' . $response['headers']['x-purged-count'] . ')';

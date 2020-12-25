@@ -82,4 +82,4 @@ If notice is not truncated, it will be displayed as this:
 
 If you have a additional idea or have a problem with plugin, report an issue.
 
-In case you need help setting whole caching system send me an email myros.net at gmail.com or visit [myros.net](https://myros.net)
+In case you need help setting whole caching system send me an email ***myros.net at gmail.com*** or visit [myros.net](https://myros.net)
