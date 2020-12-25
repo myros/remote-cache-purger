@@ -263,6 +263,6 @@ class Queue {
   */
   private function userAgent()
   {
-      return '1.0.3';
+      return '1.0.4';
   }
 }
