@@ -151,7 +151,7 @@ class Queue {
         $this->plugin->noticeMessage .= $requests[$key]['method'];
         
         if(isset($response['headers'][$this->plugin->optResponseCountHeader] )) {
-          $this->plugin->noticeMessage .= '(' . $response['headers']['x-purged-count'] . ')';
+          $this->plugin->noticeMessage .= '(' . $response['headers'][$this->plugin->optResponseCountHeader] . ')';
         }
 
         $this->plugin->noticeMessage .= ' | ' . $response['HTTP_CODE'] . ' | ' .  $response['url'];
