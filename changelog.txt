@@ -1,5 +1,8 @@
 ## CHANGELOG
 
+= 1.0.4.1 - 2020/12 =
+  * UPDATE: Display number of purged files
+
 = 1.0.4 - 2020/12 =
 
   * FIX: HTTP method - show response

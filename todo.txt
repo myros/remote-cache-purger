@@ -9,5 +9,5 @@
 * vuejs?
 * update documentation
 * add screenshots
-* response count header
 * update all cache purge
+* doesn't work after quick post/page update 
