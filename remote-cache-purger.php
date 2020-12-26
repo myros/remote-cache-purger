@@ -4,7 +4,7 @@
      * Description: Clearing cache on remote NGINX servers (Kubernetes)
      * Author: Myros
      * Author URI: https://www.myros.net/
-     * Version: 1.0.4
+     * Version: 1.0.4.1
      
      * License: http://www.apache.org/licenses/LICENSE-2.0
      * Text Domain: remote-cache-purger
@@ -137,7 +137,6 @@ class Main {
         }
       }
 
-    //   $this->currentTab = isset($_GET['tab']) ? $_GET['tab'] : 'settings';
       $this->write_log('Main', 'Init', 'End');
     }
         
@@ -153,7 +152,7 @@ class Main {
         $this->optUsePurgeMethod = get_option($this->prefix . 'use_purge_method');
         $this->optPurgePath = get_option($this->prefix . 'purge_path');
         $this->optPurgeOnSave = get_option($this->prefix . 'purge_on_save');
-        $this->optPurgedCountHeader = get_option($this->prefix . 'purged_count_header');
+        $this->optResponseCountHeader = get_option($this->prefix . 'response_count_header');
         $this->optTruncateNotice = get_option($this->prefix . 'truncate_notice');
 
         $serverIPS = explode(',', $this->optServersIP);

@@ -148,15 +148,27 @@ class Queue {
     }
     else {
       foreach($this->responses as $key => $response) {
+        $headerPresent = $response['headers'][$this->plugin->optResponseCountHeader];
+        $isCleared = isset($headerPresent) && $headerPresent > 0;
+
+        if($isCleared) {
+          $this->plugin->noticeMessage .= '<strong>';
+        }
+
         $this->plugin->noticeMessage .= $requests[$key]['method'];
         
-        if(isset($response['headers'][$this->plugin->optResponseCountHeader] )) {
+        if(isset($headerPresent)) {
           $this->plugin->noticeMessage .= '(' . $response['headers'][$this->plugin->optResponseCountHeader] . ')';
         }
 
         $this->plugin->noticeMessage .= ' | ' . $response['HTTP_CODE'] . ' | ' .  $response['url'];
 
+        if($isCleared) {
+          $this->plugin->noticeMessage .= '</strong>';
+        }
+
         $this->plugin->noticeMessage .= '<br/>';
+
       }
     }
 
