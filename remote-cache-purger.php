@@ -4,7 +4,7 @@
      * Description: Clearing cache on remote NGINX servers (Kubernetes)
      * Author: Myros
      * Author URI: https://www.myros.net/
-     * Version: 1.0.4.3
+     * Version: 1.0.4.4
      
      * License: http://www.apache.org/licenses/LICENSE-2.0
      * Text Domain: remote-cache-purger

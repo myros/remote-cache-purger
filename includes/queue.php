@@ -148,8 +148,13 @@ class Queue {
     }
     else {
       foreach($this->responses as $key => $response) {
+
         $headerPresent = isset($response['headers'][$this->plugin->optResponseCountHeader]);
-        $isCleared = isset($headerPresent) && $headerPresent > 0;
+
+        if ($headerPresent) {
+          $purgedCount = $response['headers'][$this->plugin->optResponseCountHeader];
+        }
+        $isCleared = $headerPresent && isset($purgedCount) && $purgedCount > 0;
 
         if($isCleared) {
           $this->plugin->noticeMessage .= '<strong>';
@@ -275,6 +280,6 @@ class Queue {
   */
   private function userAgent()
   {
-      return $this->userAgent . "1.0.4.3";
+      return $this->userAgent . "1.0.4.4";
   }
 }
