@@ -275,6 +275,6 @@ class Queue {
   */
   private function userAgent()
   {
-      return $this->userAgent . "1.0.4.2";
+      return $this->userAgent . "1.0.4.3";
   }
 }
