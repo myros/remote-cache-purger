@@ -1,4 +1,5 @@
 (function ($) {
+	'use strict';
 	
 	$(function () {
 		
@@ -45,24 +46,23 @@
 					});
 				}
 			);
-
 		}
 		
 		// purge all from admin bar
-		$('#wp-admin-bar-purge-all-remote-cache a, #wp-glance-purge-all-remote-cache a').click(function (e) {
+		$('#wp-admin-bar-purge-all-remote-cache a, #wp-glance-purge-all-remote-cache a').on("click", function (e) {
 			e.preventDefault();
 			executeAction('remote_cache_purge_all')
 		});
 
 		// purge url from settings console page
-		$('#remote-cache-purger-purge-link').click(function (e) {
+		$('#remote-cache-purger-purge-link').on("click", function (e) {
 			e.preventDefault();
 			var url = $('#remote_cache_purge_url').val();
 			executeAction('remote_cache_purge_url', url);
 		});
 
-		// purge one item
-		$('.rcpurger_purge_post a').click(function (e) {
+		// purge one item, has to be delegate for quick edit post
+		$("body").delegate(".remote-cache-purger-purge-item a", "click", function (e) {
 			e.preventDefault();
 			var id = $(this).attr('data-item-id');
 			executeAction('remote_cache_purge_item', id);

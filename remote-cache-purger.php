@@ -4,7 +4,7 @@
      * Description: Clearing cache on remote NGINX servers (Kubernetes)
      * Author: Myros
      * Author URI: https://www.myros.net/
-     * Version: 1.0.4.1
+     * Version: 1.0.4.2
      
      * License: http://www.apache.org/licenses/LICENSE-2.0
      * Text Domain: remote-cache-purger
@@ -133,13 +133,10 @@ class Main {
               add_action('admin_bar_menu', array($this, 'purge_cache_from_adminbar'), 100);
               add_filter('post_row_actions', array(&$this, 'post_row_actions'), 0, 2);
               add_filter('page_row_actions', array(&$this, 'page_row_actions'), 0, 2);
-
         }
       }
-
-      $this->write_log('Main', 'Init', 'End');
     }
-        
+
     /**
     * @since 1.0
     */
@@ -475,7 +472,7 @@ class Main {
     {
         if ($this->check_if_purgeable()) {
             $actions = array_merge($actions, array(
-                'rcpurger_purge_post' => sprintf('<a href="%s" data-item-id=' . $post->ID . '>' . __('Purge cache', $this->plugin) . '</a>', sprintf('javascript:;'), $this->plugin)
+                'remote-cache-purger-purge-item' => sprintf('<a href="%s" data-item-id=' . $post->ID . '>' . __('Purge cache', $this->plugin) . '</a>', sprintf('javascript:;'), $this->plugin)
             ));
         }
         return $actions;
@@ -488,7 +485,7 @@ class Main {
     {
         if ($this->check_if_purgeable()) {
             $actions = array_merge($actions, array(
-                'rcpurger_purge_post' => sprintf('<a href="%s" data-item-id=' . $post->ID . '>' . __('Purge cache', $this->plugin) . '</a>', sprintf('javascript:;'), $this->plugin)
+                'remote-cache-purger-purge-item' => sprintf('<a href="%s" data-item-id=' . $post->ID . '>' . __('Purge cache', $this->plugin) . '</a>', sprintf('javascript:;'), $this->plugin)
             ));
         }
         return $actions;
